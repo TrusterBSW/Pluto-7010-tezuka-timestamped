@@ -1,0 +1,35 @@
+# Publication d'une release GitHub à chaque tag v* : l'image SD du dépôt
+# (firmware/tezuka-fishball-ts.zip + .sha256) est vérifiée puis jointe à la release,
+# avec les notes de release-notes/<tag>.md.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: GitHub release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check SD image checksum
+        run: cd firmware && sha256sum -c tezuka-fishball-ts.zip.sha256
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          notes="release-notes/${tag}.md"
+          [ -f "$notes" ] || notes=/dev/null
+          files="firmware/tezuka-fishball-ts.zip firmware/tezuka-fishball-ts.zip.sha256"
+          if gh release view "$tag" >/dev/null 2>&1; then
+              gh release upload "$tag" $files --clobber
+          else
+              gh release create "$tag" $files --verify-tag --title "$tag" --notes-file "$notes"
+          fi
