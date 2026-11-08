@@ -19,6 +19,7 @@ LVDS, 1 GB RAM, gigabit Ethernet, SD boot), with:
 |---|---|
 | `firmware/tezuka-fishball-ts.zip` | SD card image (copy the zip contents to the root of a FAT32 card) |
 | `firmware/eco/` | eco mode scripts (included in the image), [README](firmware/eco/README.md) |
+| `firmware/kernel-cpufreq/` | experiment: Tezuka kernel rebuilt with cpufreq (not used, no gain), [README](firmware/kernel-cpufreq/README.md) |
 | `srsran/` | Docker image: srsRAN 4G + timestamped SoapyPlutoSDR, config generator |
 | `gsm/` | Docker image: osmo-trx-soapy + Osmocom stack, **ready to configure, nothing configured** |
 | `docs/RESEAU-sdr.md` | network setup between the board and the PC (ports, firewall, tuning) |
@@ -89,6 +90,10 @@ the board, and run Docker with `network_mode: host`. Details in `docs/RESEAU-sdr
 Measured: Zynq **77 °C → 65 °C** at idle (stock copper heatsink, no fan). The stock dashboard
 scripts alone used ~25 % CPU; the eco daemon uses ~2.5 %. `eco etat` shows the state. All
 settings and caveats: [firmware/eco/README.md](firmware/eco/README.md).
+
+Also tried and dropped (no measurable gain): CPU frequency scaling 666↔333 MHz during sleep
+(rebuilt kernel with cpufreq) and DDR3 auto power-down. Recipe and numbers:
+[firmware/kernel-cpufreq/README.md](firmware/kernel-cpufreq/README.md) (French).
 
 ## Test results (2026-11-05 → 08)
 

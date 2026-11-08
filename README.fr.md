@@ -19,6 +19,7 @@ Firmware Tezuka pour la carte **HamGeek Fishball** (clone Pluto+ : Zynq XC7Z010,
 |---|---|
 | `firmware/tezuka-fishball-ts.zip` | image de carte SD (copier le contenu du zip à la racine d'une carte FAT32) |
 | `firmware/eco/` | scripts du mode éco (inclus dans l'image), [README](firmware/eco/README.md) |
+| `firmware/kernel-cpufreq/` | essai : noyau Tezuka recompilé avec cpufreq (non retenu, pas de gain), [README](firmware/kernel-cpufreq/README.md) |
 | `srsran/` | image Docker : srsRAN 4G + SoapyPlutoSDR horodaté, génération de la config |
 | `gsm/` | image Docker : osmo-trx-soapy + pile Osmocom, **prête à configurer, rien n'est configuré** |
 | `docs/RESEAU-sdr.md` | réseau entre la carte et le PC (ports, pare-feu, réglages) |
@@ -88,6 +89,10 @@ l'UDP entrant venant de la carte, Docker en `network_mode: host`. Détails dans 
 Mesuré : Zynq **77 °C → 65 °C** au repos (dissipateur cuivre d'origine, sans ventilateur). Les
 scripts du tableau de bord d'origine prenaient à eux seuls ~25 % du CPU ; le démon éco en prend
 ~2,5 %. `eco etat` affiche l'état. Réglages et limites : [firmware/eco/README.md](firmware/eco/README.md).
+
+Essayé puis écarté (aucun gain mesurable) : fréquence CPU 666↔333 MHz pendant le sommeil (noyau
+recompilé avec cpufreq) et power-down automatique de la DDR3. Recette et chiffres :
+[firmware/kernel-cpufreq/README.md](firmware/kernel-cpufreq/README.md).
 
 ## Résultats des tests (2026-11-05 → 08)
 

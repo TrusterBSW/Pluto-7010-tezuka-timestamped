@@ -38,6 +38,8 @@ Journal : `grep eco: /var/log/messages`.
 | `TX_ECO` | `on` | `off` : oscillateur TX toujours allumé |
 | `ETH_ECO` | `off` | option Ethernet 100 Mbit/s, voir ci-dessous |
 | `ETH_DELAI` | `300` | secondes de sommeil avant le passage à 100 Mbit/s |
+| `CPU_ECO` | `on` | CPU à 333 MHz pendant le sommeil (seulement avec le noyau cpufreq, sinon sans effet) |
+| `DDR_ECO` | `off` | DDR3 en power-down automatique pendant le sommeil (essai, gain non mesurable) |
 
 Comportement Tezuka d'origine : `WEBUI=on`, `VEILLE=off`. Prise en compte au redémarrage (ou
 `eco pause ; eco reprise` pour la veille).
@@ -58,3 +60,8 @@ réveiller la radio.
   gigabit.
 
 Pour l'essayer : `ETH_ECO=on` dans `eco.conf`, puis `reboot`. Pour revenir : `ETH_ECO=off`.
+
+## Options `CPU_ECO` / `DDR_ECO` (essai, non retenu)
+
+Fréquence CPU 333 MHz et power-down DDR3 pendant le sommeil : testés le 2026-11-08 avec un noyau
+cpufreq, sans gain de température mesurable. Voir [`../kernel-cpufreq/README.md`](../kernel-cpufreq/README.md).

@@ -70,10 +70,10 @@ Revenir en 2 voies (MIMO, RX2) : `fw_setenv mode 2r2t ; reboot`.
   aucun gain de température visible. Remis à l'origine (`cpuidle.off=1`, copie
   `/boot/uEnv.txt.cpuidle-off`). NB : ces 3 essais ont peut-être tourné pendant qu'une autre
   session testait son bitstream edgeQAM sur la carte, à confirmer.
-- **Fréquence CPU variable** : impossible avec ce noyau (pas de cpufreq). Il faudrait recompiler
-  le noyau Tezuka avec `CONFIG_CPU_FREQ` + `cpufreq-dt` (et sans doute le module `maia_sdr`) ;
-  seul le CPU varierait (la DDR, gros consommateur, resterait à 533 MHz). Gain estimé faible,
-  risque de carte qui ne démarre plus → non fait, à décider.
+- **Fréquence CPU variable (cpufreq) et power-down DDR3** (essai du 2026-11-08, noyau recompilé) :
+  CPU 333 MHz 61,44 °C, 666 MHz 61,62 °C, 333 MHz + DDR power-down 61,15 °C (radio endormie) :
+  aucun gain mesurable. Noyau d'origine conservé. Recette et détails :
+  [`../firmware/kernel-cpufreq/README.md`](../firmware/kernel-cpufreq/README.md).
 
 ## Ethernet à 100 Mbit/s au repos (option `ETH_ECO`, désactivée)
 
