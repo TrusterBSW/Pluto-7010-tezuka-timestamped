@@ -87,7 +87,7 @@ l'UDP entrant venant de la carte, Docker en `network_mode: host`. Détails dans 
 | Interface web Tezuka/Maia | arrêtée. En SSH : `webui on` / `webui off` |
 | AD9363 | en sommeil après 30 s sans client, réveil automatique à la connexion (+~1 s) |
 | Oscillateur TX | coupé jusqu'au premier échantillon émis |
-| Flux orphelin | si un logiciel est tué sans arrêter son flux, `sdr_ip_gadget` est relancé au bout de 10 s |
+| Flux orphelin | si un logiciel est tué sans arrêter son flux, `sdr_ip_gadget` est relancé au bout de 2 minutes |
 | Ethernet | toujours en gigabit. Option 100 Mbit/s au repos : `ETH_ECO`, désactivée |
 
 Mesuré : Zynq **77 °C → 65 °C** au repos (dissipateur cuivre d'origine, sans ventilateur). Les

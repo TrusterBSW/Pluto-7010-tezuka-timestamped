@@ -17,7 +17,7 @@
 
 CONF=/boot/eco.conf
 PIDF=/var/run/eco-veille.pid
-WEBUI=off; VEILLE=on; DELAI=30; TX_ECO=off; ETH_ECO=off; ETH_DELAI=300; CPU_ECO=on; DDR_ECO=off; ORPH_DELAI=10
+WEBUI=off; VEILLE=on; DELAI=30; TX_ECO=off; ETH_ECO=off; ETH_DELAI=300; CPU_ECO=on; DDR_ECO=off; ORPH_DELAI=120
 [ -r "$CONF" ] && eval "$(tr -d '\r' < "$CONF" | grep -E '^[A-Z_]+=[A-Za-z0-9]*$')"
 
 P=

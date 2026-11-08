@@ -88,7 +88,7 @@ the board, and run Docker with `network_mode: host`. Details in `docs/RESEAU-sdr
 | Tezuka/Maia web UI | stopped. Use `webui on` / `webui off` over SSH |
 | AD9363 | sleeps after 30 s without any client and wakes up automatically on connection (+~1 s) |
 | TX oscillator | off until the first TX sample |
-| Orphan stream | if a client is killed without stopping its stream, `sdr_ip_gadget` is restarted after 10 s |
+| Orphan stream | if a client is killed without stopping its stream, `sdr_ip_gadget` is restarted after 2 minutes |
 | Ethernet | always gigabit. Optional 100 Mbit/s while idle: `ETH_ECO`, off by default |
 
 Measured: Zynq **77 °C → 65 °C** at idle (stock copper heatsink, no fan). The stock dashboard

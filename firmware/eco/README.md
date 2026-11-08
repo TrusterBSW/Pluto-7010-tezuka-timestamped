@@ -19,7 +19,7 @@ Mesures et détails : [`../../docs/ECO-energie.md`](../../docs/ECO-energie.md).
 - Flux orphelin : si un logiciel est tué sans envoyer d'ordre d'arrêt (srsRAN coupé brutalement…),
   `sdr_ip_gadget` continuerait d'envoyer le flux RX indéfiniment (jusqu'à 45 Mo/s, 50 % du CPU) et la
   radio ne dormirait plus. Le mode éco le détecte (DMA RX actif sans aucun client iiod pendant
-  `ORPH_DELAI` = 10 s) et relance `sdr_ip_gadget`. Vérifié le 2026-11-08 : flux coupé, radio en
+  `ORPH_DELAI` = 2 min, pour laisser une coupure réseau passagère se résorber) et relance `sdr_ip_gadget`. Vérifié le 2026-11-08 : flux coupé, radio en
   sommeil 30 s plus tard.
 
 ## Commandes (SSH `root@<ip-carte>`, mot de passe `analog`)
@@ -44,7 +44,7 @@ Journal : `grep eco: /var/log/messages`.
 | `ETH_ECO` | `off` | option Ethernet 100 Mbit/s, voir ci-dessous |
 | `ETH_DELAI` | `300` | secondes de sommeil avant le passage à 100 Mbit/s |
 | `CPU_ECO` | `on` | CPU à 333 MHz pendant le sommeil (seulement avec le noyau cpufreq, sinon sans effet) |
-| `ORPH_DELAI` | `10` | secondes de flux RX sans client avant relance de `sdr_ip_gadget` |
+| `ORPH_DELAI` | `120` | secondes de flux RX sans client avant relance de `sdr_ip_gadget` |
 | `DDR_ECO` | `off` | DDR3 en power-down automatique pendant le sommeil (essai, gain non mesurable) |
 
 Comportement Tezuka d'origine : `WEBUI=on`, `VEILLE=off`. Prise en compte au redémarrage (ou
