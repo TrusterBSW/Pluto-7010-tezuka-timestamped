@@ -1,0 +1,14 @@
+# Image 2G Osmocom pour le Fishball horodaté. Rien n'est configuré ni lancé par défaut.
+#   docker compose build
+#   PLUTO_IP=<ip> docker compose run --rm gsm probe
+services:
+  gsm:
+    build: .
+    image: pluto-gsm:ts
+    network_mode: host      # UDP vers sdr_ip_gadget, ports TRX/Abis/A en local
+    privileged: true        # priorité temps réel d'osmo-trx, TUN pour osmo-ggsn
+    environment:
+      - PLUTO_IP=${PLUTO_IP:-}
+    volumes:
+      - ./config:/config    # vos futurs fichiers .cfg (vide pour l'instant)
+    command: aide

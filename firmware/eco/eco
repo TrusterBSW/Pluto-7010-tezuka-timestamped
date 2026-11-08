@@ -1,0 +1,247 @@
+#!/bin/sh
+# Mode économie d'énergie du Fishball 7010 (firmware Tezuka horodaté)
+#
+#   eco etat           radio, interface web, températures
+#   eco pause          réveille la radio et suspend la mise en sommeil automatique
+#   eco reprise        relance la mise en sommeil automatique
+#   webui on|off|etat  interface web Tezuka/Maia à la demande (= eco webui …)
+#
+# Réglages : /boot/eco.conf (fichier eco.conf à la racine de la carte SD).
+#
+# Mise en sommeil : l'AD9363 passe en état ENSM « sleep » (synthés RX/TX, ADC/DAC et
+# horloge de données coupés, ce qui arrête aussi la logique FPGA cadencée par cette
+# horloge) quand aucun client n'est connecté (iiod 30431, web 80/443/9001/9002) et
+# qu'il n'y a eu aucune activité (paquets SDR, interruptions DMA) depuis DELAI secondes.
+# Une nouvelle connexion réveille la radio ; elle aboutit ~1 s plus tard (le premier
+# SYN est ignoré le temps du réveil, car l'AD9363 endormi refuse tous les réglages).
+
+CONF=/boot/eco.conf
+PIDF=/var/run/eco-veille.pid
+WEBUI=off; VEILLE=on; DELAI=30; TX_ECO=off; ETH_ECO=off; ETH_DELAI=300; CPU_ECO=on; DDR_ECO=off
+[ -r "$CONF" ] && eval "$(tr -d '\r' < "$CONF" | grep -E '^[A-Z_]+=[A-Za-z0-9]*$')"
+
+P=
+for d in /sys/bus/iio/devices/iio:device*; do
+	[ "$(cat "$d/name" 2>/dev/null)" = ad9361-phy ] && { P=$d; break; }
+done
+
+log() { logger -t eco "$*"; }
+appelant() { tr '\0' ' ' < /proc/$PPID/cmdline 2>/dev/null; }
+
+# ---------------------------------------------------------------- interface web
+WEB_SCRIPTS="api_controller watchconsoletx watchdatveasy watchconsolefreq"
+
+web_on() {
+	# Maia règle l'AD9363 à son démarrage : radio réveillée d'abord (refus en sommeil)
+	en_veille=0; [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null && en_veille=1
+	[ $en_veille = 1 ] && veille_off
+	/etc/init.d/S50mosquitto start >/dev/null 2>&1
+	/etc/init.d/S60maia-httpd start >/dev/null 2>&1
+	/etc/init.d/S61classifier start >/dev/null 2>&1
+	for s in $WEB_SCRIPTS; do
+		pgrep -f "/root/$s.sh" >/dev/null || setsid "/root/$s.sh" </dev/null >/dev/null 2>&1 &
+	done
+	log "interface web démarrée"
+	[ $en_veille = 1 ] && { sleep 5; VEILLE=on; veille_on; }
+}
+
+web_off() {
+	for s in $WEB_SCRIPTS; do pkill -f "/root/$s.sh"; done
+	pkill -x mqtt_pubd; pkill -x mosquitto_sub; pkill -x inotifywait
+	/etc/init.d/S61classifier stop >/dev/null 2>&1
+	/etc/init.d/S60maia-httpd stop >/dev/null 2>&1
+	/etc/init.d/S50mosquitto stop >/dev/null 2>&1
+	i=0; while pgrep -x maia-httpd >/dev/null && [ $i -lt 10 ]; do sleep 0.5; i=$((i + 1)); done
+	pkill -9 -x maia-httpd 2>/dev/null
+	log "interface web arrêtée"
+}
+
+web_etat() { pgrep -x maia-httpd >/dev/null && echo on || echo off; }
+
+# ---------------------------------------------------------------- veille radio
+# Ports des clients de la radio : iiod 30431, web 80/443, MQTT web 9001/9002
+PORTS="30431 80 443 9001 9002"
+
+regles() {
+	iptables -N ECO 2>/dev/null || iptables -F ECO
+	iptables -C INPUT -j ECO 2>/dev/null || iptables -A INPUT -j ECO
+	for p in $PORTS; do iptables -A ECO -p tcp --dport $p; done
+	iptables -A ECO -p udp --dport 30432
+	iptables -A ECO -p udp --dport 30433
+	# Pendant le sommeil : nouvelles connexions retenues (paquet SYN ignoré). Le PC
+	# renvoie son SYN ~1 s plus tard, quand la radio est réveillée : l'AD9363 endormi
+	# refuserait sinon les premiers réglages du logiciel (fréquence, gain, débit).
+	iptables -N ECOSYN 2>/dev/null || iptables -F ECOSYN
+	for p in $PORTS; do iptables -A ECOSYN -p tcp --dport $p --syn -j DROP; done
+}
+
+retenir()  { iptables -C INPUT -j ECOSYN 2>/dev/null || iptables -I INPUT 1 -j ECOSYN; }
+relacher() { iptables -D INPUT -j ECOSYN 2>/dev/null; }
+
+sans_regles() {
+	relacher
+	iptables -D INPUT -j ECO 2>/dev/null
+	for c in ECO ECOSYN; do iptables -F $c 2>/dev/null; iptables -X $c 2>/dev/null; done
+}
+
+# « <activité rx> <activité tx> <connexions retenues> » : compteurs iptables + DMA
+mesure() {
+	{ iptables -nvxL 2>/dev/null; echo "Chain FIN"; cat /proc/interrupts; } | awk '
+		/^Chain/ { ch = $2; next }
+		ch == "ECOSYN" && $1 ~ /^[0-9]+$/ { syn += $1; next }
+		ch == "ECO" && /dpt:30433/ { tx += $1; next }
+		ch == "ECO" && /dpt:/      { rx += $1; next }
+		/7c400000\.dma/ { for (i = 2; i <= NF && $i ~ /^[0-9]+$/; i++) rx += $i }
+		/7c420000\.dma/ { for (i = 2; i <= NF && $i ~ /^[0-9]+$/; i++) tx += $i }
+		END { print rx + 0, tx + 0, syn + 0 }'
+}
+
+# Nombre de clients connectés (iiod, web) — lecture sans lancer de processus
+connexions() {
+	nc=0
+	for f in /proc/net/tcp /proc/net/tcp6; do
+		[ -r $f ] || continue
+		while read -r sl loc rem st rest; do
+			[ "$st" = 01 ] || continue
+			case "$loc" in *:76DF|*:0050|*:01BB|*:2329|*:232A) nc=$((nc + 1)) ;; esac
+		done < $f
+	done
+}
+
+# Paquets IP reçus (tous ports) — lecture sans lancer de processus
+ip_recus() { { read h; read v; } < /proc/net/snmp; set -- $v; ipin=$4; }
+
+# CPU : 333 MHz (powersave) pendant le sommeil, 666 MHz (performance) sinon.
+# Sans cpufreq dans le noyau (Tezuka d'origine), ne fait rien.
+CPUF=/sys/devices/system/cpu/cpu0/cpufreq
+cpu_lent()   { ddr_lent; [ "$CPU_ECO" = on ] && [ -w $CPUF/scaling_governor ] && echo powersave > $CPUF/scaling_governor; }
+cpu_rapide() { ddr_rapide; [ -w $CPUF/scaling_governor ] && echo performance > $CPUF/scaling_governor; }
+
+# DDR3 : power-down automatique du contrôleur (bit 1 de ddrc_ctrl 0xF8006000) pendant le
+# sommeil : la mémoire passe en power-down après ~0,4 µs sans accès et en sort en quelques ns.
+DDRC=0xF8006000
+ddr_lent() {
+	[ "$DDR_ECO" = on ] || return 0
+	v=$(devmem $DDRC); [ $(( v & 2 )) = 2 ] || devmem $DDRC 32 $(printf 0x%08X $(( v | 2 )))
+}
+ddr_rapide() {
+	v=$(devmem $DDRC); [ $(( v & 2 )) = 0 ] || devmem $DDRC 32 $(printf 0x%08X $(( v & ~2 )))
+}
+
+# Ethernet : 100 Mbit/s après ETH_DELAI s de sommeil, gigabit dès la première demande.
+# Chaque changement = renégociation (~3,2 s sans lien, IP conservée).
+eth_100()  { ethtool -s eth0 advertise 0x008 && log "Ethernet passé à 100 Mbit/s"; }
+eth_1000() { ethtool -s eth0 advertise 0x02f && log "Ethernet repassé en gigabit"; }
+
+veille() {
+	[ -n "$P" ] || { log "ad9361-phy introuvable"; exit 1; }
+	regles
+	FIFO=/var/run/eco.fifo; rm -f "$FIFO"; mkfifo "$FIFO"; exec 3<>"$FIFO"
+	inactif=0; inactif_tx=0; dort=0; txoff=0; eth100=0; dodo=0
+	[ "$(cat /sys/class/net/eth0/speed 2>/dev/null)" = 100 ] && eth100=1
+	trap 'cpu_rapide; [ $eth100 = 1 ] && eth_1000; exit 0' TERM INT
+	MODE=$(cat "$P/ensm_mode"); [ "$MODE" = sleep ] && { MODE=fdd; dort=1; retenir; cpu_lent; }
+	[ "$(cat "$P/out_altvoltage1_TX_LO_powerdown")" = 1 ] && txoff=1
+	set -- $(mesure); prx=$1; ptx=$2; psyn=$3
+	ip_recus; pipin=$ipin
+	while :; do
+		if [ $dort = 1 ]; then
+			if [ "$ETH_ECO" = on ] && [ $eth100 = 0 ]; then
+				dodo=$((dodo + 1))	# pas de 0,25 s
+				[ $dodo -ge $((ETH_DELAI * 4)) ] && { eth_100; eth100=1; }
+			fi
+			# Endormie : test toutes les 0,25 s, mais iptables n'est relu que si un
+			# paquet IP est arrivé, pour réveiller avant la réémission du SYN (~1 s).
+			read -t 0.25 -u 3 x
+			ip_recus; [ "$ipin" = "$pipin" ] && continue; pipin=$ipin
+		else
+			read -t 1 -u 3 x
+		fi
+		connexions
+		set -- $(mesure)
+		if [ "$1" != "$prx" ] || [ "$2" != "$ptx" ] || [ "$3" != "$psyn" ] || [ $nc -gt 0 ]; then
+			inactif=0
+			if [ $dort = 1 ]; then
+				cpu_rapide
+				[ $eth100 = 1 ] && { eth_1000; eth100=0; }
+				echo "$MODE" > "$P/ensm_mode" && log "radio réveillée"
+				relacher; dort=0; dodo=0
+			fi
+		else
+			inactif=$((inactif + 1))
+		fi
+		if [ "$2" != "$ptx" ]; then
+			inactif_tx=0
+			[ $txoff = 1 ] && { echo 0 > "$P/out_altvoltage1_TX_LO_powerdown"; txoff=0; log "oscillateur TX allumé"; }
+		else
+			inactif_tx=$((inactif_tx + 1))
+		fi
+		prx=$1; ptx=$2; psyn=$3
+		if [ $dort = 0 ] && [ $inactif -ge "$DELAI" ]; then
+			retenir; connexions
+			if [ $nc -eq 0 ]; then
+				m=$(cat "$P/ensm_mode"); [ "$m" = sleep ] || MODE=$m
+				echo sleep > "$P/ensm_mode" && log "radio en sommeil"
+				cpu_lent
+				dort=1
+			else
+				relacher; inactif=0
+			fi
+		fi
+		if [ "$TX_ECO" = on ] && [ $txoff = 0 ] && [ $inactif_tx -ge "$DELAI" ]; then
+			echo 1 > "$P/out_altvoltage1_TX_LO_powerdown"; txoff=1; log "oscillateur TX coupé"
+		fi
+	done
+}
+
+veille_on() {
+	[ "$VEILLE" = on ] || return 0
+	[ -f "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null && return 0
+	setsid /usr/sbin/eco _veille </dev/null >/dev/null 2>&1 &
+	echo $! > "$PIDF"
+	log "mise en sommeil automatique active (délai ${DELAI} s, TX_ECO=$TX_ECO)"
+}
+
+veille_off() {
+	if [ -f "$PIDF" ] && kill "$(cat "$PIDF")" 2>/dev/null; then sleep 1; fi
+	rm -f "$PIDF"
+	[ "$(cat /sys/class/net/eth0/speed 2>/dev/null)" = 100 ] && eth_1000
+	sans_regles
+	if [ -n "$P" ]; then
+		[ "$(cat "$P/ensm_mode")" = sleep ] && echo fdd > "$P/ensm_mode"
+		echo 0 > "$P/out_altvoltage1_TX_LO_powerdown"
+	fi
+	log "mise en sommeil automatique suspendue, radio réveillée (appel : $(appelant))"
+}
+
+etat() {
+	x=$(cat /sys/bus/iio/devices/iio:device*/in_temp0_raw 2>/dev/null | head -1)
+	o=$(cat /sys/bus/iio/devices/iio:device*/in_temp0_offset 2>/dev/null | head -1)
+	a=$(cat "$P/in_temp0_input" 2>/dev/null)
+	if [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null; then v=active; else v=suspendue; fi
+	echo "radio (ENSM)        : $(cat "$P/ensm_mode")"
+	echo "oscillateur TX      : $( [ "$(cat "$P/out_altvoltage1_TX_LO_powerdown")" = 1 ] && echo coupé || echo allumé)"
+	echo "mise en sommeil auto: $v (délai ${DELAI} s, TX_ECO=$TX_ECO, ETH_ECO=$ETH_ECO)"
+	echo "Ethernet            : $(cat /sys/class/net/eth0/speed 2>/dev/null) Mbit/s"
+	[ -r $CPUF/scaling_cur_freq ] && echo "CPU                 : $(( $(cat $CPUF/scaling_cur_freq) / 1000 )) MHz ($(cat $CPUF/scaling_governor), CPU_ECO=$CPU_ECO)"
+	echo "interface web       : $(web_etat)"
+	[ -n "$x" ] && echo "température Zynq    : $(( (x + o) * 12304 / 100000 )) °C"
+	[ -n "$a" ] && echo "température AD9363  : $(( a / 1000 )) °C"
+}
+
+case "$(basename "$0")" in webui) set -- webui "$@" ;; esac
+
+case "$1" in
+	boot)     [ "$WEBUI" = on ] || web_off; veille_on ;;
+	_veille)  veille ;;
+	pause)    veille_off ;;
+	reprise)  VEILLE=on; veille_on ;;
+	etat|"")  etat ;;
+	webui)
+		case "$2" in
+			on)  web_on ;;
+			off) web_off ;;
+			*)   echo "interface web : $(web_etat)  (webui on | webui off)" ;;
+		esac ;;
+	*) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ; exit 1 ;;
+esac

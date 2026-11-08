@@ -1,0 +1,23 @@
+# Lancement : PLUTO_IP=192.168.x.y docker compose run --rm srsran probe
+#             PLUTO_IP=192.168.x.y PRB=6 docker compose run --rm srsran all
+services:
+  srsran:
+    build: .
+    image: pluto-srsran:ts
+    network_mode: host        # UDP direct vers sdr_ip_gadget + interface TUN de srsepc
+    privileged: true          # /dev/net/tun, iptables, priorités temps réel
+    environment:
+      - PLUTO_IP=${PLUTO_IP:-pluto.local}
+      - TRANSPORT=${TRANSPORT:-ip}
+      - PRB=${PRB:-6}
+      - EARFCN=${EARFCN:-1575}
+      - MCC=${MCC:-001}
+      - MNC=${MNC:-01}
+      - TX_GAIN=${TX_GAIN:-89}
+      - RX_GAIN=${RX_GAIN:-20}
+      - MME_ADDR=${MME_ADDR:-127.0.1.100}
+      - ENB_BIND=${ENB_BIND:-127.0.1.1}
+      - MASQ_IF=${MASQ_IF:-}
+    volumes:
+      - ./config:/config:ro     # mettre ici user_db.csv (vos SIM)
+    command: all

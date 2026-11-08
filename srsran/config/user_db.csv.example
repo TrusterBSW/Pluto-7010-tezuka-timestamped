@@ -1,0 +1,4 @@
+# Copier en user_db.csv et remplacer par vos SIM (IMSI, Ki, OPc) - PLMN 001/01 comme docker_open5gs.
+# Format srsepc : nom,algo,IMSI,Ki,type_OP,OP_ou_OPc,AMF,SQN,QCI,IP
+# Name,Auth,IMSI,Key,OP_Type,OP/OPc,AMF,SQN,QCI,IP_alloc
+sim06,mil,001010000000006,00112233445566778899aabbccddeeff,opc,000102030405060708090a0b0c0d0e0f,8000,000000000000,9,dynamic
