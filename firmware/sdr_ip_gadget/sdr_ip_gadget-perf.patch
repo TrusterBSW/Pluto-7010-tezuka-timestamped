@@ -1,0 +1,245 @@
+diff --git a/thread_read.c b/thread_read.c
+index c70aa11..a32d154 100644
+--- a/thread_read.c
++++ b/thread_read.c
+@@ -18,6 +18,15 @@
+ #include <syscall.h>
+ #include <time.h>
+ #include <unistd.h>
++#include <netinet/in.h>
++#include <netinet/udp.h>
++#include <sys/socket.h>
++
++#ifndef UDP_SEGMENT
++#define UDP_SEGMENT 103
++#endif
++/* UDP GSO: segments per message (UDP payload <= 64 KiB) */
++#define GSO_MAX_SEGS(sz) ((size_t)(65000U / (sz)))
+ 
+ /* libIIO */
+ #include <iio.h>
+@@ -73,6 +82,12 @@ typedef struct
+ 	struct iovec *arr_iovs;
+ 	data_ip_hdr_t *arr_pkt_hdrs;
+ 
++	/* UDP GSO: one message per group of packets, segmented late by the kernel */
++	bool gso;
++	size_t gso_msgs;
++	struct mmsghdr *arr_gso_hdrs;
++	union { char buf[CMSG_SPACE(sizeof(uint16_t))]; struct cmsghdr align; } gso_cmsg;
++
+ 	/* Current sequence number / timestamp */
+ 	uint64_t seqno;
+ 
+@@ -116,7 +131,9 @@ void *THREAD_READ_Entrypoint(void *args)
+ 	/* Set name, priority and CPU affinity */
+ 	pthread_setname_np(pthread_self(), "IP_SDR_GAD_RD");
+ 	UTILS_SetThreadRealtimePriority();
+-	UTILS_SetThreadAffinity(1);
++	/* CPU core: SDR_IP_GADGET_RX_CPU (default 1, as upstream; core 0 stalls the stream) */
++	const char *cpu_env = getenv("SDR_IP_GADGET_RX_CPU");
++	UTILS_SetThreadAffinity(cpu_env ? atoi(cpu_env) : 1);
+ 
+ 	/* Reset state */
+ 	state_t state;
+@@ -283,6 +300,34 @@ void *THREAD_READ_Entrypoint(void *args)
+ 		state.arr_pkt_hdrs[i].block_count = (uint8_t)state.packets_per_buffer;
+ 	}
+ 
++	/* UDP GSO (disable with SDR_IP_GADGET_NO_GSO=1): packets on the wire are unchanged */
++	state.gso = (getenv("SDR_IP_GADGET_NO_GSO") == NULL);
++	if (state.gso)
++	{
++		size_t per = GSO_MAX_SEGS(state.thread_args->udp_packet_size);
++		if (per < 2) per = 2;
++		state.gso_msgs = (state.packets_per_buffer + per - 1) / per;
++		state.arr_gso_hdrs = calloc(state.gso_msgs, sizeof(struct mmsghdr));
++		struct cmsghdr *cm = (struct cmsghdr *)state.gso_cmsg.buf;
++		cm->cmsg_level = SOL_UDP;
++		cm->cmsg_type = UDP_SEGMENT;
++		cm->cmsg_len = CMSG_LEN(sizeof(uint16_t));
++		*(uint16_t *)CMSG_DATA(cm) = (uint16_t)state.thread_args->udp_packet_size;
++		for (size_t m = 0; m < state.gso_msgs; m++)
++		{
++			size_t first = m * per;
++			size_t count = state.packets_per_buffer - first;
++			if (count > per) count = per;
++			state.arr_gso_hdrs[m].msg_hdr.msg_name = &state.thread_args->addr;
++			state.arr_gso_hdrs[m].msg_hdr.msg_namelen = sizeof(state.thread_args->addr);
++			state.arr_gso_hdrs[m].msg_hdr.msg_iov = &state.arr_iovs[2 * first];
++			state.arr_gso_hdrs[m].msg_hdr.msg_iovlen = 2 * count;
++			state.arr_gso_hdrs[m].msg_hdr.msg_control = state.gso_cmsg.buf;
++			state.arr_gso_hdrs[m].msg_hdr.msg_controllen = sizeof(state.gso_cmsg.buf);
++		}
++		fprintf(stderr, "RX: UDP GSO enabled, %zu message(s) per buffer\n", state.gso_msgs);
++	}
++
+ 	/* Summarize info */
+ 	DEBUG_PRINT("RX sample count: %zu, iio sample size: %zu, UDP packet size: %zu\n",
+ 				thread_args->iio_buffer_size,
+@@ -421,6 +466,25 @@ static int handle_iio_buffer(state_t *state)
+ 		buffer += state->packet_payload_size;
+ 	}
+ 
++	if (state->gso)
++	{
++		int sent = sendmmsg(state->thread_args->output_fd, state->arr_gso_hdrs, state->gso_msgs, 0);
++		if (sent == (int)state->gso_msgs) goto sent_ok;
++		if (sent < 0 && (errno == EINVAL || errno == EIO || errno == ENOPROTOOPT || errno == EOPNOTSUPP))
++		{
++			/* GSO refused by the kernel: permanent fallback to one datagram per packet */
++			fprintf(stderr, "UDP GSO unavailable (%s), falling back to sendmmsg\n", strerror(errno));
++			state->gso = false;
++		}
++		else
++		{
++			#if GENERATE_STATS
++			state->overflows++;
++			#endif
++			goto sent_ok;
++		}
++	}
++
+ 	/* Send all datagrams with single system call :-) */
+ 	if (state->packets_per_buffer != sendmmsg(state->thread_args->output_fd,
+ 											  state->arr_mmsg_hdrs,
+@@ -434,6 +498,7 @@ static int handle_iio_buffer(state_t *state)
+ 		#endif
+ 	}
+ 
++sent_ok:
+ 	/* Advance sequence number */
+ 	state->seqno += state->thread_args->iio_buffer_size;
+ 
+diff --git a/thread_write.c b/thread_write.c
+index 931d146..319f90b 100644
+--- a/thread_write.c
++++ b/thread_write.c
+@@ -69,6 +69,9 @@ typedef struct
+ 	/* Current sequence number / timestamp */
+ 	uint64_t seqno;
+ 
++	/* recvmmsg batching: payload size learnt from block 0 of the current buffer */
++	size_t batch_payload;
++
+ 	/* Current amount of IIO buffer space used (bytes) */
+ 	size_t iio_buffer_used;
+ 
+@@ -121,7 +124,9 @@ void *THREAD_WRITE_Entrypoint(void *args)
+ 	/* Set name, priority and CPU affinity */
+ 	pthread_setname_np(pthread_self(), "IP_SDR_GAD_WR");
+ 	UTILS_SetThreadRealtimePriority();
+-	UTILS_SetThreadAffinity(1);
++	/* CPU core: SDR_IP_GADGET_TX_CPU (default 1, as upstream; core 0 stalls the stream) */
++	const char *cpu_env = getenv("SDR_IP_GADGET_TX_CPU");
++	UTILS_SetThreadAffinity(cpu_env ? atoi(cpu_env) : 1);
+ 
+ 	/* Reset state */
+ 	state_t state;
+@@ -359,6 +364,89 @@ static int handle_socket(state_t *state)
+ 		iov[1].iov_base = &buffer[buffer_offset];
+ 		iov[1].iov_len = state->iio_buffer_size - buffer_offset;
+ 
++		/*
++		** Batched receive: once block 0 of the buffer told us the payload size, receive the
++		** following blocks with one recvmmsg() straight into their place in the IIO buffer.
++		** Any anomaly drops the buffer, exactly like the per-packet path below.
++		*/
++		if (	(0 != state->iio_buffer_used)
++			 && (state->batch_payload > 0)
++			 && (state->block_index < state->block_count)
++			 && (getenv("SDR_IP_GADGET_NO_RECVMMSG") == NULL)
++		   )
++		{
++			enum { BATCH = 64 };
++			struct mmsghdr mm[BATCH];
++			struct iovec biov[2 * BATCH];
++			data_ip_hdr_t bhdr[BATCH];
++			size_t want = state->block_count - state->block_index;
++			if (want > BATCH) want = BATCH;
++			size_t n = 0;
++			for (; n < want; n++)
++			{
++				size_t off = state->iio_buffer_used + n * state->batch_payload;
++				if (off >= state->iio_buffer_size) break;
++				size_t len = state->iio_buffer_size - off;
++				if (len > state->batch_payload) len = state->batch_payload;
++				biov[2 * n].iov_base = &bhdr[n];
++				biov[2 * n].iov_len = sizeof(data_ip_hdr_t);
++				biov[2 * n + 1].iov_base = &buffer[off];
++				biov[2 * n + 1].iov_len = len;
++				memset(&mm[n], 0, sizeof(mm[n]));
++				mm[n].msg_hdr.msg_iov = &biov[2 * n];
++				mm[n].msg_hdr.msg_iovlen = 2;
++			}
++			int got = (n > 0) ? recvmmsg(state->thread_args->input_fd, mm, n, MSG_DONTWAIT, NULL) : 0;
++			if (got < 0)
++			{
++				if ((EWOULDBLOCK != errno) && (EAGAIN != errno))
++				{
++					perror("Receive failed");
++					return 1;
++				}
++				break;
++			}
++			bool bad = false;
++			for (int j = 0; j < got; j++)
++			{
++				size_t plen = (mm[j].msg_len >= sizeof(data_ip_hdr_t)) ? mm[j].msg_len - sizeof(data_ip_hdr_t) : 0;
++				size_t room = biov[2 * j + 1].iov_len;
++				if (	(mm[j].msg_len < sizeof(data_ip_hdr_t))
++					 || (SDR_IP_GADGET_MAGIC != bhdr[j].magic)
++					 || (state->block_index != bhdr[j].block_index)
++					 || (state->block_count != bhdr[j].block_count)
++					 || (state->seqno != bhdr[j].seqno)
++					 || ((plen != room) && (state->iio_buffer_used + plen != state->iio_buffer_size))
++				   )
++				{
++					bad = true;
++					break;
++				}
++				state->iio_buffer_used += plen;
++				state->block_index++;
++			}
++			if (bad)
++			{
++				#if GENERATE_STATS
++				state->out_of_order++;
++				#endif
++				/* Drop the buffer, restart on the next block 0 */
++				state->iio_buffer_used = 0;
++				state->batch_payload = 0;
++				continue;
++			}
++			if (state->iio_buffer_size == state->iio_buffer_used)
++			{
++				goto buffer_full;
++			}
++			if (got < (int)n)
++			{
++				/* Socket exhausted */
++				break;
++			}
++			continue;
++		}
++
+ 		/* Receive into buffers */
+ 		int rc = recvmsg(state->thread_args->input_fd, &msg, 0);
+ 		if (-1 == rc)
+@@ -455,12 +543,16 @@ static int handle_socket(state_t *state)
+ 		}
+ 		state->iio_buffer_used += (size_t)rc;
+ 
++		/* Learn payload size from block 0 (used by the batched path) */
++		if (1 == state->block_index + 1 && (size_t)rc > 0) state->batch_payload = (size_t)rc;
++
+ 		/* Advance index */
+ 		state->block_index++;
+ 
+ 		/* Is buffer full? */
+ 		if (state->iio_buffer_size == state->iio_buffer_used)
+ 		{
++buffer_full:
+ 			/* Yep, get ready to send it */
+ 			#if GENERATE_STATS
+ 			/* Capture write period */

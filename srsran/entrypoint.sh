@@ -20,6 +20,7 @@ TIME_ADV=${TIME_ADV:-40}             # time_adv_nsamples (valeur de Phil)
 MME_ADDR=${MME_ADDR:-127.0.1.100}    # mode enb : IP du MME externe
 ENB_BIND=${ENB_BIND:-127.0.1.1}      # mode enb : IP locale vers le MME / GTP
 MASQ_IF=${MASQ_IF:-}                 # interface de sortie Internet pour les UE (mode all/epc)
+IP_CS8=${IP_CS8:-0}                  # 1 : échantillons 8 bits sur le réseau (50 PRB sans overclock)
 
 case "$PRB" in
   6)  TS_EVERY=1920; PRACH=0 ;;
@@ -33,6 +34,8 @@ if [ "$TRANSPORT" = usb ]; then
   DEV_ARGS="driver=plutosdr,usb_direct=1,timestamp_every=${TS_EVERY},loopback=0"
 else
   DEV_ARGS="driver=plutosdr,hostname=${PLUTO_IP},direct=1,timestamp_every=${TS_EVERY},loopback=0"
+  # IP_CS8=1 : échantillons 8 bits sur le réseau (deux fois moins de débit ; sdr_ip_gadget modifié requis)
+  [ "${IP_CS8:-0}" = 1 ] && DEV_ARGS="${DEV_ARGS},ip_cs8=1"
 fi
 
 CFG=/root/cfg

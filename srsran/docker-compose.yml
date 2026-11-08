@@ -18,6 +18,7 @@ services:
       - MME_ADDR=${MME_ADDR:-127.0.1.100}
       - ENB_BIND=${ENB_BIND:-127.0.1.1}
       - MASQ_IF=${MASQ_IF:-}
+      - IP_CS8=${IP_CS8:-0}     # 1 : échantillons 8 bits sur le réseau (sdr_ip_gadget modifié)
     volumes:
       - ./config:/config:ro     # mettre ici user_db.csv (vos SIM)
     command: all

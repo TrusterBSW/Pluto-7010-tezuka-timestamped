@@ -20,7 +20,8 @@ Firmware Tezuka pour la carte **HamGeek Fishball** (clone Pluto+ : Zynq XC7Z010,
 | `firmware/tezuka-fishball-ts.zip` | image de carte SD (copier le contenu du zip à la racine d'une carte FAT32) |
 | `firmware/eco/` | scripts du mode éco (inclus dans l'image), [README](firmware/eco/README.md) |
 | `firmware/kernel-cpufreq/` | essai : noyau Tezuka recompilé avec cpufreq (non retenu, pas de gain), [README](firmware/kernel-cpufreq/README.md) |
-| `srsran/` | image Docker : srsRAN 4G + SoapyPlutoSDR horodaté, génération de la config |
+| `srsran/` | image Docker : srsRAN 4G + SoapyPlutoSDR horodaté (patché : découverte par hostname, 8 bits `ip_cs8`), génération de la config |
+| `firmware/sdr_ip_gadget/` | patch et mesures du `sdr_ip_gadget` optimisé (GSO UDP) |
 | `gsm/` | image Docker : osmo-trx-soapy + pile Osmocom, **prête à configurer, rien n'est configuré** |
 | `docs/RESEAU-sdr.md` | réseau entre la carte et le PC (ports, pare-feu, réglages) |
 | `docs/2G-osmocom.md`, `docs/ECO-energie.md` | notes 2G, mesures du mode éco |
@@ -31,7 +32,7 @@ Firmware Tezuka pour la carte **HamGeek Fishball** (clone Pluto+ : Zynq XC7Z010,
 - `system_top.bin` : bitstream construit à partir du maia-sdr de F5OEO (branche `refactor`) **avec
   l'horodatage de Phil Greenland** (compteur 64 bits, cpack/upack horodatés), Maia conservé.
 - `system_top_tezuka.bin` : bitstream Tezuka d'origine (sans horodatage).
-- Démon `sdr_ip_gadget` (chemin UDP rapide et horodaté).
+- Démon `sdr_ip_gadget` (chemin UDP rapide et horodaté), avec GSO UDP (voir `firmware/sdr_ip_gadget/`).
 - Mode éco (`/usr/sbin/eco`, `eco.conf` à la racine de la carte).
 - `devicetree.dtb` : devicetree Tezuka avec l'**atténuation TX au maximum (89,75 dB) au démarrage**
   (`adi,tx-attenuation-mdB = <89750>` au lieu de 10 dB) : rien n'est émis tant qu'un logiciel ne règle
@@ -61,8 +62,8 @@ cd srsran && docker compose build
 PLUTO_IP=<ip-carte> docker compose run --rm srsran probe
 PLUTO_IP=<ip-carte> PRB=6 docker compose run --rm srsran all     # EPC + eNB
 ```
-Arguments générés : `driver=plutosdr,hostname=<ip>,direct=1,timestamp_every=1920|3840|5760,loopback=0`
-(6 / 15 / 25 PRB). Voir [srsran/README.md](srsran/README.md).
+Arguments générés : `driver=plutosdr,hostname=<ip>,direct=1,timestamp_every=1920|3840|5760|11520,loopback=0`
+(6 / 15 / 25 / 50 PRB). Pour 50 PRB, ajouter `IP_CS8=1` (échantillons 8 bits, `ip_cs8=1`). Voir [srsran/README.md](srsran/README.md).
 
 ### 2G (osmo-trx)
 
@@ -102,8 +103,8 @@ recompilé avec cpufreq) et power-down automatique de la DDR3. Recette et chiffr
 
 - `Timestamps: YES` en RX et en TX, lien gigabit, 2 cœurs CPU.
 - Bouclage horodaté (`gsm test-ts`, 10 000 blocs de 1 ms) : **9 999/9 999 blocs RX à 1 ms exactement**, en 1R1T + mode éco.
-- Réception par le réseau : jusqu'à **8,3 Méch/s** CS16 avec horodatage (11,4 Méch/s avec le FSBL d'overclock CPU950/DDR600 de Tezuka, non activé).
-- srsRAN 4G : 6, 15 et 25 PRB sans erreur RF (CPU de la carte ~90 % à 25 PRB) ; 50 PRB ne fonctionne pas. Détails dans [srsran/README.md](srsran/README.md).
+- **srsRAN 4G jusqu'à 50 PRB (10 MHz) sans overclock** : I/Q 8 bits rangés par le FPGA (`IP_CS8=1`) et `sdr_ip_gadget` avec GSO UDP. CPU de la carte : 25 PRB 35 % (16 bits) / 9 % (8 bits), 50 PRB 43 à 80 % (8 bits), contre 94 % à 25 PRB avec le gadget d'origine. Détails dans [srsran/README.md](srsran/README.md).
+- Débit RX horodaté maximal : 8,3 Méch/s (origine) → 12,2 (GSO, 16 bits) → **17,4 Méch/s** (GSO, 8 bits). Voir [firmware/sdr_ip_gadget/README.md](firmware/sdr_ip_gadget/README.md).
 - Réception FM identique à celle du bitstream Tezuka d'origine.
 
 ## Limites connues

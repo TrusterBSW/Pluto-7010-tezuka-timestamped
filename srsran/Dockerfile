@@ -31,16 +31,6 @@ RUN git clone --depth 1 -b soapy-sdr-0.8.1 https://github.com/pothosware/SoapySD
  && cmake -S SoapySDR -B SoapySDR/build -DCMAKE_BUILD_TYPE=Release -DENABLE_PYTHON3=OFF \
  && cmake --build SoapySDR/build -j"$(nproc)" && cmake --install SoapySDR/build
 
-# Pilote Soapy avec horodatage (UDP direct vers sdr_ip_gadget, ou USB direct)
-# Correctif : avec hostname=, se connecter directement (le scan « ip » passe par Avahi/DNS-SD, absent
-# du conteneur ; il échoue et srsRAN, qui énumère avant d'ouvrir, ne trouvait pas la carte)
-COPY soapy-hostname-first.patch /tmp/soapy-hostname-first.patch
-RUN git clone --depth 1 -b sdr_gadget_timestamping https://github.com/pgreenland/SoapyPlutoSDR.git \
- && patch -d SoapyPlutoSDR -p1 < /tmp/soapy-hostname-first.patch \
- && cmake -S SoapyPlutoSDR -B SoapyPlutoSDR/build -DCMAKE_BUILD_TYPE=Release \
- && cmake --build SoapyPlutoSDR/build -j"$(nproc)" && cmake --install SoapyPlutoSDR/build \
- && ldconfig
-
 # srsRAN 4G (EPC + eNB), débits LTE standard (1.92 / 3.84 / 7.68 MS/s)
 RUN git clone --depth 1 -b release_23_04 https://github.com/srsran/srsRAN_4G.git \
  && cmake -S srsRAN_4G -B srsRAN_4G/build -DCMAKE_BUILD_TYPE=Release -DUSE_LTE_RATES=ON \
@@ -49,6 +39,19 @@ RUN git clone --depth 1 -b release_23_04 https://github.com/srsran/srsRAN_4G.git
  && cmake --build srsRAN_4G/build -j"$(nproc)" && cmake --install srsRAN_4G/build \
  && ldconfig && srsran_install_configs.sh service \
  && rm -rf /src/*/build
+
+# Pilote Soapy avec horodatage (UDP direct vers sdr_ip_gadget, ou USB direct), compilé APRÈS
+# srsRAN (qui ne dépend que de libSoapySDR) pour qu'un changement de patch ne recompile pas srsRAN.
+# Patchs (soapy-*.patch) :
+#  - hostname-first : avec hostname=, connexion directe (le scan « ip » passe par Avahi/DNS-SD,
+#    absent du conteneur ; il échouait et srsRAN, qui énumère avant d'ouvrir, ne trouvait rien)
+#  - bbrate-log : code d'erreur et débit dans « Unable to set BB rate »
+COPY soapy-*.patch /tmp/
+RUN git clone --depth 1 -b sdr_gadget_timestamping https://github.com/pgreenland/SoapyPlutoSDR.git \
+ && for p in /tmp/soapy-*.patch; do patch -d SoapyPlutoSDR -p1 < "$p" || exit 1; done \
+ && cmake -S SoapyPlutoSDR -B SoapyPlutoSDR/build -DCMAKE_BUILD_TYPE=Release \
+ && cmake --build SoapyPlutoSDR/build -j"$(nproc)" && cmake --install SoapyPlutoSDR/build \
+ && ldconfig && rm -rf SoapyPlutoSDR/build
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

@@ -1,0 +1,233 @@
+diff -ruN a/PlutoSDR_RXStreamerIPGadget.cpp b/PlutoSDR_RXStreamerIPGadget.cpp
+--- a/PlutoSDR_RXStreamerIPGadget.cpp	2026-11-08 21:20:25.064093414 +0000
++++ b/PlutoSDR_RXStreamerIPGadget.cpp	2026-11-08 21:43:51.438656069 +0000
+@@ -46,6 +46,20 @@
+ 	// Calculate timestamp size
+ 	timestamp_size_samples = (channel_list.size() == 2 ? 2 : 1);
+ 
++	// ip_cs8=1: 8-bit I/Q packed by the FPGA in channel 0 (channel 1 disabled). Half the bytes over DMA
++	// and network, no conversion on the board's CPU. Timestamp = 64 bits = 4 samples of 16 bits.
++	wire_cs8 = (args.count("ip_cs8") != 0) && (args.at("ip_cs8") == "1");
++	if (wire_cs8) {
++		if (channel_list.size() != 2) {
++			SoapySDR_logf(SOAPY_SDR_ERROR, "ip_cs8=1 needs a single channel (I/Q)");
++			throw std::runtime_error("ip_cs8=1 needs a single channel (I/Q)");
++		}
++		enabled_channels = 0x1;
++		sample_size_bytes = 2;
++		timestamp_size_samples = 4;
++		SoapySDR_logf(SOAPY_SDR_INFO, "8-bit samples packed by the FPGA (ip_cs8=1)");
++	}
++
+ 	// Assume buffer size will be supplied by user
+ 	fixed_buffer_size = true;
+ 
+@@ -86,7 +100,7 @@
+ 	}
+ 
+ 	// Setup timestamping
+-	SoapyPlutoSDR_TimestampEvery::update_device_timestamp_every(dev, timestamp_every, channel_list.size());
++	SoapyPlutoSDR_TimestampEvery::update_device_timestamp_every(dev, timestamp_every, wire_cs8 ? 1 : channel_list.size());
+ 
+ 	// Assume direct copying is supported
+ 	direct_copy = true;
+@@ -136,7 +150,31 @@
+ 	// Work out how many items to copy
+ 	size_t items = std::min(curr_buffer_samples_remaining, numElems);
+ 
+-	if (direct_copy) {
++	if (wire_cs8) {
++		// 8-bit I/Q from the FPGA (bytes I, Q; 12-bit value rounded >> 4)
++		int8_t const *src8 = (int8_t *)(curr_buffer->payload.data() + curr_buffer_offset);
++		if (format == PLUTO_SDR_CS8) {
++			::memcpy(buffs[0], src8, 2 * items);
++		}
++		else if (format == PLUTO_SDR_CF32) {
++			float *dst_cf32 = (float *)buffs[0];
++			for (size_t index = 0; index < items * 2; ++index) dst_cf32[index] = float(src8[index]) / 128.0f;
++		}
++		else if (format == PLUTO_SDR_CS16) {
++			int16_t *dst_cs16 = (int16_t *)buffs[0];
++			for (size_t index = 0; index < items * 2; ++index) dst_cs16[index] = int16_t(src8[index]) * 16;
++		}
++		else if (format == PLUTO_SDR_CS12) {
++			int8_t *dst_cs12 = (int8_t *)buffs[0];
++			for (size_t index = 0; index < items; ++index) {
++				int16_t i = int16_t(src8[2 * index]) * 16;
++				int16_t q = int16_t(src8[2 * index + 1]) * 16;
++				*dst_cs12++ = uint8_t(i);
++				*dst_cs12++ = uint8_t((q << 4) | ((i >> 8) & 0x0f));
++				*dst_cs12++ = uint8_t(q >> 4);
++			}
++		}
++	} else if (direct_copy) {
+ 		// optimize for single RX, 2 channel (I/Q), same endianess direct copy
+ 		// note that RX is 12 bits LSB aligned, i.e. fullscale 2048
+ 		uint8_t *src = curr_buffer->payload.data() + curr_buffer_offset;
+diff -ruN a/PlutoSDR_RXStreamerIPGadget.hpp b/PlutoSDR_RXStreamerIPGadget.hpp
+--- a/PlutoSDR_RXStreamerIPGadget.hpp	2026-11-08 21:20:25.064093414 +0000
++++ b/PlutoSDR_RXStreamerIPGadget.hpp	2026-11-08 21:43:51.438656069 +0000
+@@ -90,6 +90,9 @@
+ 		// Direct copy supported
+ 		bool direct_copy;
+ 
++		// 8-bit samples packed by the FPGA (device argument ip_cs8=1)
++		bool wire_cs8;
++
+ 		// Current buffer being processed by receive
+ 		std::shared_ptr<seq_payload_t> curr_buffer;
+ 		size_t curr_buffer_samples_remaining;
+diff -ruN a/PlutoSDR_Settings.cpp b/PlutoSDR_Settings.cpp
+--- a/PlutoSDR_Settings.cpp	2026-11-08 21:20:25.064093414 +0000
++++ b/PlutoSDR_Settings.cpp	2026-11-08 21:43:51.438656069 +0000
+@@ -863,6 +863,7 @@
+ 				}
+ 			}
+ 			this->udp_packet_size = udp_packet_size;
++			this->ip_cs8_dev = (args.count("ip_cs8") != 0) && (args.at("ip_cs8") == "1");
+ 		}
+ 	}
+ 	else if (direct_val == "0") {
+diff -ruN a/PlutoSDR_Streaming.cpp b/PlutoSDR_Streaming.cpp
+--- a/PlutoSDR_Streaming.cpp	2026-11-08 21:20:25.064093414 +0000
++++ b/PlutoSDR_Streaming.cpp	2026-11-08 21:43:51.438656069 +0000
+@@ -122,9 +122,11 @@
+ 		if (-1 != ip_sdr_dev_control)
+ 		{
+ 			// Use ip streaming gadget
++			SoapySDR::Kwargs sargs_rx = args;
++			if (ip_cs8_dev) sargs_rx["ip_cs8"] = "1";
+ 			this->rx_stream = std::unique_ptr<rx_streamer>(new rx_streamer_ip_gadget (rx_dev,
+ 																					  ip_sdr_dev_control, ip_sdr_dev_data, udp_packet_size,
+-																					  streamFormat, channels, args, timestamp_every_rx));
++																					  streamFormat, channels, sargs_rx, timestamp_every_rx));
+ 
+ 		}
+ 		#ifdef HAS_LIBUSB1
+@@ -155,9 +157,11 @@
+ 		if (-1 != ip_sdr_dev_control)
+ 		{
+ 			// Use ip streaming gadget
++			SoapySDR::Kwargs sargs_tx = args;
++			if (ip_cs8_dev) sargs_tx["ip_cs8"] = "1";
+ 			this->tx_stream = std::unique_ptr<tx_streamer>(new tx_streamer_ip_gadget (tx_dev,
+ 																					  ip_sdr_dev_control, ip_sdr_dev_data, udp_packet_size,
+-																					  streamFormat, channels, args, timestamp_every_tx));
++																					  streamFormat, channels, sargs_tx, timestamp_every_tx));
+ 
+ 		}
+ 		#ifdef HAS_LIBUSB1
+diff -ruN a/PlutoSDR_TXStreamerIPGadget.cpp b/PlutoSDR_TXStreamerIPGadget.cpp
+--- a/PlutoSDR_TXStreamerIPGadget.cpp	2026-11-08 21:20:25.064093414 +0000
++++ b/PlutoSDR_TXStreamerIPGadget.cpp	2026-11-08 21:43:51.438656069 +0000
+@@ -45,6 +45,20 @@
+ 	// Calculate timestamp size
+ 	timestamp_size_samples = (channel_list.size() == 2 ? 2 : 1);
+ 
++	// ip_cs8=1: 8-bit I/Q packed by the FPGA in channel 0 (channel 1 disabled). Half the bytes over DMA
++	// and network, no conversion on the board's CPU. Timestamp = 64 bits = 4 samples of 16 bits.
++	wire_cs8 = (args.count("ip_cs8") != 0) && (args.at("ip_cs8") == "1");
++	if (wire_cs8) {
++		if (channel_list.size() != 2) {
++			SoapySDR_logf(SOAPY_SDR_ERROR, "ip_cs8=1 needs a single channel (I/Q)");
++			throw std::runtime_error("ip_cs8=1 needs a single channel (I/Q)");
++		}
++		enabled_channels = 0x1;
++		sample_size_bytes = 2;
++		timestamp_size_samples = 4;
++		SoapySDR_logf(SOAPY_SDR_INFO, "8-bit samples packed by the FPGA (ip_cs8=1)");
++	}
++
+ 	// Calculate buffer length
+ 	if (args.count("bufflen") != 0) {
+ 		// Buffer length provided
+@@ -81,7 +95,7 @@
+ 	}
+ 
+ 	// Setup timestamping
+-	SoapyPlutoSDR_TimestampEvery::update_device_timestamp_every(dev, timestamp_every, channel_list.size());
++	SoapyPlutoSDR_TimestampEvery::update_device_timestamp_every(dev, timestamp_every, wire_cs8 ? 1 : channel_list.size());
+ 
+ 	// Assume direct copying is supported
+ 	direct_copy = true;
+@@ -171,7 +185,40 @@
+ 	int16_t src = 0;
+ 	int16_t const *src_ptr = &src;
+ 
+-	if (direct_copy && format == PLUTO_SDR_CS16) {
++	if (wire_cs8) {
++		// 8-bit I/Q to the FPGA: 16-bit word = I << 8 | Q, i.e. bytes Q, I
++		int8_t *dst8 = (int8_t *)curr_buffer->payload.data() + curr_buffer_samples_stored * 2;
++		if (format == PLUTO_SDR_CS8) {
++			const int8_t *src8 = (const int8_t *)buffs[0];
++			for (size_t index = 0; index < items; ++index) {
++				dst8[2 * index] = src8[2 * index + 1];
++				dst8[2 * index + 1] = src8[2 * index];
++			}
++		}
++		else if (format == PLUTO_SDR_CF32) {
++			const float *src_cf32 = (const float *)buffs[0];
++			for (size_t index = 0; index < items; ++index) {
++				float vi = src_cf32[2 * index] * 127.999f, vq = src_cf32[2 * index + 1] * 127.999f;
++				if (vi > 127.0f) vi = 127.0f;
++				if (vi < -128.0f) vi = -128.0f;
++				if (vq > 127.0f) vq = 127.0f;
++				if (vq < -128.0f) vq = -128.0f;
++				dst8[2 * index] = int8_t(vq);
++				dst8[2 * index + 1] = int8_t(vi);
++			}
++		}
++		else if (format == PLUTO_SDR_CS16) {
++			const int16_t *src_cs16 = (const int16_t *)buffs[0];
++			for (size_t index = 0; index < items; ++index) {
++				dst8[2 * index] = int8_t(src_cs16[2 * index + 1] >> 8);
++				dst8[2 * index + 1] = int8_t(src_cs16[2 * index] >> 8);
++			}
++		}
++		else {
++			SoapySDR_logf(SOAPY_SDR_ERROR, "CS12 not available with ip_cs8=1");
++			throw std::runtime_error("CS12 not available with ip_cs8=1");
++		}
++	} else if (direct_copy && format == PLUTO_SDR_CS16) {
+ 		// optimize for single TX, 2 channel (I/Q), same endianess direct copy
+ 		int16_t *dst_ptr = (int16_t *)curr_buffer->payload.data() + curr_buffer_samples_stored * 2;
+ 		memcpy(dst_ptr, buffs[0], 2 * sizeof(int16_t) * items);
+diff -ruN a/PlutoSDR_TXStreamerIPGadget.hpp b/PlutoSDR_TXStreamerIPGadget.hpp
+--- a/PlutoSDR_TXStreamerIPGadget.hpp	2026-11-08 21:20:25.064093414 +0000
++++ b/PlutoSDR_TXStreamerIPGadget.hpp	2026-11-08 21:43:51.438656069 +0000
+@@ -92,6 +92,9 @@
+ 		// Direct copy supported
+ 		bool direct_copy;
+ 
++		// 8-bit samples packed by the FPGA (device argument ip_cs8=1)
++		bool wire_cs8;
++
+ 		// Current buffer being processed by send
+ 		std::shared_ptr<seq_payload_t> curr_buffer;
+ 		size_t curr_buffer_samples_stored;
+diff -ruN a/PlutoSDR_TimestampEvery.hpp b/PlutoSDR_TimestampEvery.hpp
+--- a/PlutoSDR_TimestampEvery.hpp	2026-11-08 21:20:25.064093414 +0000
++++ b/PlutoSDR_TimestampEvery.hpp	2026-11-08 21:43:51.438656069 +0000
+@@ -25,6 +25,11 @@
+         {
+             value /= 2;
+         }
++        else if (channel_count == 1)
++        {
++            // CS8 packed by the FPGA (I8+Q8 in channel 0): 4 samples per 64-bit word
++            value /= 4;
++        }
+ 
+         // The 32-bit GPIO register is divided into timestamp_every [31:1] and decimator/interpolator enable [0:0]
+         // therefore we mask off the old bits and or in the new bits, shifting them into place.
+diff -ruN a/SoapyPlutoSDR.hpp b/SoapyPlutoSDR.hpp
+--- a/SoapyPlutoSDR.hpp	2026-11-08 21:20:25.064093414 +0000
++++ b/SoapyPlutoSDR.hpp	2026-11-08 21:43:51.438656069 +0000
+@@ -352,6 +352,7 @@
+ 		int loopback;
+ 		uint32_t timestamp_every_rx;
+ 		uint32_t timestamp_every_tx;
++		bool ip_cs8_dev = false; // device argument ip_cs8=1
+ 
+ 		void handle_direct_args(const SoapySDR::Kwargs & args);
+ 		void handle_loopback_args(const SoapySDR::Kwargs & args);

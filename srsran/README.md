@@ -79,28 +79,46 @@ Les SIM déjà provisionnées dans open5gs (PLMN 001/01) s'attachent alors sans 
 
 ⚠️ Émission sur bandes cellulaires : cage de Faraday ou liaison câblée avec atténuateurs.
 
-## Charge mesurée et overclock (2026-11-08)
+## 50 PRB (10 MHz) : 8 bits + sdr_ip_gadget optimisé (2026-11-08)
 
-srsRAN `all` sur la VM (filaire), carte en 1R1T, bitstream v3, `TX_GAIN=0`, 90 s par palier
-(`charge.sh`). Aucune erreur RF (pas de L/U/O) à 6, 15 et 25 PRB.
+```bash
+PLUTO_IP=<ip-carte> PRB=50 IP_CS8=1 docker compose run --rm srsran all
+```
 
-| PRB | Débit | CPU de la carte (666 MHz) | CPU (overclock 950/600) | Zynq |
-|---|---|---|---|---|
-| 6 | 1,92 Méch/s | 53–57 % | – | 67 °C |
-| 15 | 3,84 Méch/s | 72–74 % | 60–70 % | 68–70 °C |
-| 25 | 5,76 Méch/s | **88–96 %** (limite) | 82–95 % | 70–72 °C (73–77 °C overclocké) |
-| 50 | 11,52 Méch/s | ne fonctionne pas (« Unable to set BB rate », flux TX absent) | idem | |
+- `IP_CS8=1` ajoute `ip_cs8=1` aux arguments : le **FPGA** range I et Q sur 8 bits (logique CS8 de
+  Tezuka, active quand le canal Q est désactivé), d'où deux fois moins d'octets en DMA et sur le
+  réseau, sans calcul sur le CPU de la carte. 8 bits ≈ 48 dB de dynamique : suffisant pour du
+  64QAM (srsRAN 4G par défaut), limite pour du 256QAM.
+- Nécessite l'image SD v0.2.0 (`sdr_ip_gadget` avec GSO UDP, voir
+  [`../firmware/sdr_ip_gadget/README.md`](../firmware/sdr_ip_gadget/README.md)) et le pilote patché
+  de cette image Docker (`soapy-ip-cs8.patch`).
 
-Débit RX maximal horodaté (`SoapySDRUtil --rate`, `direct=1`) : **8,3 Méch/s** à 666/533 MHz,
-**11,4 Méch/s** avec le FSBL `overclock/BOOT_fsbl_CPU950_DDR600` (+38 %). Le flux est donc limité
-par le CPU de la carte (`sdr_ip_gadget`).
+Mesures (carte sans overclock, srsRAN sur une VM en filaire, CPU moyen de la carte sur 30 s,
+blocs TX arrivés en retard et rejetés par le FPGA) :
 
-Conclusion : 25 PRB passe sans overclock mais sans marge ; 50 PRB ne passe pas, même overclocké
-(il faudrait 11,52 Méch/s en RX **et** en TX, et le réglage du débit échoue). L'overclock (hors
-spécifications du Zynq -1 et de la DDR3, +4 à 5 °C) n'est donc pas activé par défaut. Pour
-l'essayer : `cp /boot/BOOT.bin /boot/BOOT_orig.bin; cp /boot/overclock/BOOT_fsbl_CPU950_DDR600
-/boot/BOOT.bin; sync; reboot` (retour : `BOOT_orig.bin` → `BOOT.bin`).
+| | gadget d'origine | gadget v0.2.0 (GSO) |
+|---|---|---|
+| 25 PRB, 16 bits | 94 % (91 / 30 s) | **35 %** (2 / 30 s) |
+| 25 PRB, 8 bits | 84 % | **9 %** |
+| 50 PRB, 8 bits | 97 %, saturé | **43 à 80 %** (0 à 6 / 30 s ; 4 sur 160 000 en 160 s) |
 
-Correctif inclus dans l'image Docker : `soapy-hostname-first.patch`. Avec `hostname=`, le pilote de
-Phil se connecte directement ; sinon son scan réseau (Avahi, absent du conteneur) échouait et
-srsRAN, qui énumère les périphériques avant de les ouvrir, ne trouvait pas la carte.
+Débit RX horodaté maximal : 8,3 Méch/s (origine) → 12,2 (GSO, 16 bits) → **17,4 (GSO, 8 bits)**.
+L'overclock CPU950/DDR600 de Tezuka (11,4 Méch/s avec le gadget d'origine, +4 à 5 °C, hors
+spécifications) n'est plus utile et reste désactivé.
+
+Pièges rencontrés :
+- srsRAN arrêté (même proprement) n'envoie pas l'ordre d'arrêt du flux : `sdr_ip_gadget` continue
+  d'émettre. Le mode éco le coupe au bout de 2 min (`ORPH_DELAI`). Un nouveau srsRAN lancé pendant
+  ce flux orphelin démarre mal (« Unable to set BB rate », pas d'émission) : attendre, ou relancer
+  le gadget (`/etc/init.d/S55sdr_ip_gadget restart`).
+- `TX_GAIN=0` = atténuation maximale (srsRAN affiche alors « TX gain was not set »).
+
+## Correctifs du pilote SoapyPlutoSDR (dans l'image Docker)
+
+| Patch | Rôle |
+|---|---|
+| `soapy-hostname-first.patch` | avec `hostname=`, connexion directe (le scan « ip » passe par Avahi, absent du conteneur : srsRAN ne trouvait pas la carte) |
+| `soapy-ip-cs8.patch` | argument `ip_cs8=1` : 8 bits convertis par le FPGA (canal 0 seul, horodatage sur 4 échantillons, `timestamp_every`/4) |
+| `soapy-bbrate-log.patch` | code d'erreur et débit dans « Unable to set BB rate » |
+
+Le pilote est compilé après srsRAN dans le Dockerfile : changer un patch ne recompile pas srsRAN.

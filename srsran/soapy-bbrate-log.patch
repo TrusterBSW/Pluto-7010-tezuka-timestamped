@@ -1,0 +1,14 @@
+--- a/PlutoSDR_Settings.cpp	2026-11-08 20:39:37.750341726 +0000
++++ b/PlutoSDR_Settings.cpp	2026-11-08 20:39:37.766342035 +0000
+@@ -661,8 +661,9 @@
+ 	}
+ 
+ #ifdef HAS_AD9361_IIO
+-	if(ad9361_set_bb_rate(dev,(unsigned long)samplerate))
+-		SoapySDR_logf(SOAPY_SDR_ERROR, "Unable to set BB rate.");
++	int bb_ret = ad9361_set_bb_rate(dev,(unsigned long)samplerate);
++	if(bb_ret)
++		SoapySDR_logf(SOAPY_SDR_ERROR, "Unable to set BB rate (%lld S/s, %s): %d", samplerate, direction==SOAPY_SDR_RX?"RX":"TX", bb_ret);
+ #endif
+ 
+ }

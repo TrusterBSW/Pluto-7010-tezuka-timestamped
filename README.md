@@ -20,7 +20,8 @@ LVDS, 1 GB RAM, gigabit Ethernet, SD boot), with:
 | `firmware/tezuka-fishball-ts.zip` | SD card image (copy the zip contents to the root of a FAT32 card) |
 | `firmware/eco/` | eco mode scripts (included in the image), [README](firmware/eco/README.md) |
 | `firmware/kernel-cpufreq/` | experiment: Tezuka kernel rebuilt with cpufreq (not used, no gain), [README](firmware/kernel-cpufreq/README.md) |
-| `srsran/` | Docker image: srsRAN 4G + timestamped SoapyPlutoSDR, config generator |
+| `srsran/` | Docker image: srsRAN 4G + timestamped SoapyPlutoSDR (patched: hostname discovery, 8-bit `ip_cs8`), config generator |
+| `firmware/sdr_ip_gadget/` | patch and measurements of the optimised `sdr_ip_gadget` (UDP GSO) |
 | `gsm/` | Docker image: osmo-trx-soapy + Osmocom stack, **ready to configure, nothing configured** |
 | `docs/RESEAU-sdr.md` | network setup between the board and the PC (ports, firewall, tuning) |
 | `docs/2G-osmocom.md`, `docs/ECO-energie.md` | 2G notes, eco mode measurements |
@@ -63,8 +64,8 @@ cd srsran && docker compose build
 PLUTO_IP=<board-ip> docker compose run --rm srsran probe
 PLUTO_IP=<board-ip> PRB=6 docker compose run --rm srsran all     # EPC + eNB
 ```
-Device args generated: `driver=plutosdr,hostname=<ip>,direct=1,timestamp_every=1920|3840|5760,loopback=0`
-(6 / 15 / 25 PRB). See [srsran/README.md](srsran/README.md).
+Device args generated: `driver=plutosdr,hostname=<ip>,direct=1,timestamp_every=1920|3840|5760|11520,loopback=0`
+(6 / 15 / 25 / 50 PRB). For 50 PRB add `IP_CS8=1` (8-bit samples, `ip_cs8=1`). See [srsran/README.md](srsran/README.md).
 
 ### 2G (osmo-trx)
 
@@ -103,8 +104,8 @@ Also tried and dropped (no measurable gain): CPU frequency scaling 666↔333 MHz
 
 - `Timestamps: YES` on RX and TX, gigabit link, 2 CPU cores.
 - Timestamped loopback (`gsm test-ts`, 10,000 blocks of 1 ms): **9,999/9,999 RX blocks at exactly 1 ms**, 1R1T + eco mode.
-- RX over the network: up to **8.3 MS/s** CS16 with timestamps (11.4 MS/s with the Tezuka CPU950/DDR600 overclock FSBL, not enabled).
-- srsRAN 4G: 6, 15 and 25 PRB run without RF errors (board CPU ~90 % at 25 PRB); 50 PRB does not work. Details in [srsran/README.md](srsran/README.md).
+- **srsRAN 4G up to 50 PRB (10 MHz) without overclock**: 8-bit I/Q packed by the FPGA (`IP_CS8=1`) and `sdr_ip_gadget` with UDP GSO. Board CPU: 25 PRB 35 % (16-bit) / 9 % (8-bit), 50 PRB 43–80 % (8-bit), vs 94 % at 25 PRB with the original gadget. Details in [srsran/README.md](srsran/README.md).
+- Max timestamped RX rate: 8.3 MS/s (original) → 12.2 (GSO, 16-bit) → **17.4 MS/s** (GSO, 8-bit). See [firmware/sdr_ip_gadget/README.md](firmware/sdr_ip_gadget/README.md).
 - FM reception identical to the stock Tezuka bitstream.
 
 ## Known limitations
