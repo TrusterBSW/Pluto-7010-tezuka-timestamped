@@ -88,6 +88,7 @@ the board, and run Docker with `network_mode: host`. Details in `docs/RESEAU-sdr
 | Tezuka/Maia web UI | stopped. Use `webui on` / `webui off` over SSH |
 | AD9363 | sleeps after 30 s without any client and wakes up automatically on connection (+~1 s) |
 | TX oscillator | off until the first TX sample |
+| Orphan stream | if a client is killed without stopping its stream, `sdr_ip_gadget` is restarted after 10 s |
 | Ethernet | always gigabit. Optional 100 Mbit/s while idle: `ETH_ECO`, off by default |
 
 Measured: Zynq **77 °C → 65 °C** at idle (stock copper heatsink, no fan). The stock dashboard
@@ -102,7 +103,8 @@ Also tried and dropped (no measurable gain): CPU frequency scaling 666↔333 MHz
 
 - `Timestamps: YES` on RX and TX, gigabit link, 2 CPU cores.
 - Timestamped loopback (`gsm test-ts`, 10,000 blocks of 1 ms): **9,999/9,999 RX blocks at exactly 1 ms**, 1R1T + eco mode.
-- RX over the network: ~7.4 MS/s CS16 max with timestamps (~30 MB/s).
+- RX over the network: up to **8.3 MS/s** CS16 with timestamps (11.4 MS/s with the Tezuka CPU950/DDR600 overclock FSBL, not enabled).
+- srsRAN 4G: 6, 15 and 25 PRB run without RF errors (board CPU ~90 % at 25 PRB); 50 PRB does not work. Details in [srsran/README.md](srsran/README.md).
 - FM reception identical to the stock Tezuka bitstream.
 
 ## Known limitations

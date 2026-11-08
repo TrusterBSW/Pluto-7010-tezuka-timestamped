@@ -78,3 +78,29 @@ Les SIM déjà provisionnées dans open5gs (PLMN 001/01) s'attachent alors sans 
 - Collision PRACH/PUCCH au démarrage : vérifier `prach_freq_offset` pour le PRB choisi.
 
 ⚠️ Émission sur bandes cellulaires : cage de Faraday ou liaison câblée avec atténuateurs.
+
+## Charge mesurée et overclock (2026-11-08)
+
+srsRAN `all` sur la VM (filaire), carte en 1R1T, bitstream v3, `TX_GAIN=0`, 90 s par palier
+(`charge.sh`). Aucune erreur RF (pas de L/U/O) à 6, 15 et 25 PRB.
+
+| PRB | Débit | CPU de la carte (666 MHz) | CPU (overclock 950/600) | Zynq |
+|---|---|---|---|---|
+| 6 | 1,92 Méch/s | 53–57 % | – | 67 °C |
+| 15 | 3,84 Méch/s | 72–74 % | 60–70 % | 68–70 °C |
+| 25 | 5,76 Méch/s | **88–96 %** (limite) | 82–95 % | 70–72 °C (73–77 °C overclocké) |
+| 50 | 11,52 Méch/s | ne fonctionne pas (« Unable to set BB rate », flux TX absent) | idem | |
+
+Débit RX maximal horodaté (`SoapySDRUtil --rate`, `direct=1`) : **8,3 Méch/s** à 666/533 MHz,
+**11,4 Méch/s** avec le FSBL `overclock/BOOT_fsbl_CPU950_DDR600` (+38 %). Le flux est donc limité
+par le CPU de la carte (`sdr_ip_gadget`).
+
+Conclusion : 25 PRB passe sans overclock mais sans marge ; 50 PRB ne passe pas, même overclocké
+(il faudrait 11,52 Méch/s en RX **et** en TX, et le réglage du débit échoue). L'overclock (hors
+spécifications du Zynq -1 et de la DDR3, +4 à 5 °C) n'est donc pas activé par défaut. Pour
+l'essayer : `cp /boot/BOOT.bin /boot/BOOT_orig.bin; cp /boot/overclock/BOOT_fsbl_CPU950_DDR600
+/boot/BOOT.bin; sync; reboot` (retour : `BOOT_orig.bin` → `BOOT.bin`).
+
+Correctif inclus dans l'image Docker : `soapy-hostname-first.patch`. Avec `hostname=`, le pilote de
+Phil se connecte directement ; sinon son scan réseau (Avahi, absent du conteneur) échouait et
+srsRAN, qui énumère les périphériques avant de les ouvrir, ne trouvait pas la carte.

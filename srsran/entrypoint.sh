@@ -10,7 +10,7 @@ set -euo pipefail
 MODE=${1:-all}
 PLUTO_IP=${PLUTO_IP:-pluto.local}
 TRANSPORT=${TRANSPORT:-ip}          # ip (Ethernet, sdr_ip_gadget) | usb
-PRB=${PRB:-6}                        # 6, 15 ou 25 (25 = maximum testé par Phil, en Ethernet)
+PRB=${PRB:-6}                        # 6, 15, 25 ou 50 (25 = maximum testé par Phil, en Ethernet ; 50 = essai)
 EARFCN=${EARFCN:-1575}               # 1575 = bande 3 (DL 1842,5 MHz). À adapter.
 MCC=${MCC:-001}
 MNC=${MNC:-01}
@@ -25,7 +25,8 @@ case "$PRB" in
   6)  TS_EVERY=1920; PRACH=0 ;;
   15) TS_EVERY=3840; PRACH=4 ;;
   25) TS_EVERY=5760; PRACH=4 ;;
-  *)  echo "PRB doit valoir 6, 15 ou 25" >&2; exit 1 ;;
+  50) TS_EVERY=11520; PRACH=4 ;;
+  *)  echo "PRB doit valoir 6, 15, 25 ou 50" >&2; exit 1 ;;
 esac
 
 if [ "$TRANSPORT" = usb ]; then

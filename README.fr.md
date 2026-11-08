@@ -87,6 +87,7 @@ l'UDP entrant venant de la carte, Docker en `network_mode: host`. Détails dans 
 | Interface web Tezuka/Maia | arrêtée. En SSH : `webui on` / `webui off` |
 | AD9363 | en sommeil après 30 s sans client, réveil automatique à la connexion (+~1 s) |
 | Oscillateur TX | coupé jusqu'au premier échantillon émis |
+| Flux orphelin | si un logiciel est tué sans arrêter son flux, `sdr_ip_gadget` est relancé au bout de 10 s |
 | Ethernet | toujours en gigabit. Option 100 Mbit/s au repos : `ETH_ECO`, désactivée |
 
 Mesuré : Zynq **77 °C → 65 °C** au repos (dissipateur cuivre d'origine, sans ventilateur). Les
@@ -101,7 +102,8 @@ recompilé avec cpufreq) et power-down automatique de la DDR3. Recette et chiffr
 
 - `Timestamps: YES` en RX et en TX, lien gigabit, 2 cœurs CPU.
 - Bouclage horodaté (`gsm test-ts`, 10 000 blocs de 1 ms) : **9 999/9 999 blocs RX à 1 ms exactement**, en 1R1T + mode éco.
-- Réception par le réseau : ~7,4 Méch/s CS16 au maximum avec horodatage (~30 Mo/s).
+- Réception par le réseau : jusqu'à **8,3 Méch/s** CS16 avec horodatage (11,4 Méch/s avec le FSBL d'overclock CPU950/DDR600 de Tezuka, non activé).
+- srsRAN 4G : 6, 15 et 25 PRB sans erreur RF (CPU de la carte ~90 % à 25 PRB) ; 50 PRB ne fonctionne pas. Détails dans [srsran/README.md](srsran/README.md).
 - Réception FM identique à celle du bitstream Tezuka d'origine.
 
 ## Limites connues

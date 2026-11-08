@@ -1,0 +1,23 @@
+--- a/PlutoSDR_Registration.cpp	2026-11-08 19:31:03.811870566 +0000
++++ b/PlutoSDR_Registration.cpp	2026-11-08 19:31:03.815870644 +0000
+@@ -19,6 +19,20 @@
+ 	iio_context_info **info;
+ 	SoapySDR::Kwargs options;
+ 
++	// hostname given: connect to it directly. The "ip" scan relies on DNS-SD (Avahi), which is
++	// missing in containers: it then fails and the hostname fallback below is never reached.
++	if (args.count("hostname") != 0) {
++		ctx = iio_create_network_context(args.at("hostname").c_str());
++		if (ctx != nullptr) {
++			options["device"] = "PlutoSDR";
++			options["hostname"] = args.at("hostname");
++			options["label"] = "PlutoSDR #0 " + args.at("hostname");
++			results.push_back(options);
++			iio_context_destroy(ctx);
++			return results;
++		}
++	}
++
+ 	// Backends can error, scan each one individually
+ 	// The filtered "usb" backend is available starting from Libiio 0.24
+ 	std::vector<std::string> backends = {"local", "usb=0456:b673", "ip"};

@@ -17,7 +17,7 @@
 
 CONF=/boot/eco.conf
 PIDF=/var/run/eco-veille.pid
-WEBUI=off; VEILLE=on; DELAI=30; TX_ECO=off; ETH_ECO=off; ETH_DELAI=300; CPU_ECO=on; DDR_ECO=off
+WEBUI=off; VEILLE=on; DELAI=30; TX_ECO=off; ETH_ECO=off; ETH_DELAI=300; CPU_ECO=on; DDR_ECO=off; ORPH_DELAI=10
 [ -r "$CONF" ] && eval "$(tr -d '\r' < "$CONF" | grep -E '^[A-Z_]+=[A-Za-z0-9]*$')"
 
 P=
@@ -93,7 +93,8 @@ mesure() {
 		ch == "ECO" && /dpt:/      { rx += $1; next }
 		/7c400000\.dma/ { for (i = 2; i <= NF && $i ~ /^[0-9]+$/; i++) rx += $i }
 		/7c420000\.dma/ { for (i = 2; i <= NF && $i ~ /^[0-9]+$/; i++) tx += $i }
-		END { print rx + 0, tx + 0, syn + 0 }'
+		/7c400000\.dma/ { for (i = 2; i <= NF && $i ~ /^[0-9]+$/; i++) rd += $i }
+		END { print rx + 0, tx + 0, syn + 0, rd + 0 }'
 }
 
 # Nombre de clients connectés (iiod, web) — lecture sans lancer de processus
@@ -137,12 +138,12 @@ veille() {
 	[ -n "$P" ] || { log "ad9361-phy introuvable"; exit 1; }
 	regles
 	FIFO=/var/run/eco.fifo; rm -f "$FIFO"; mkfifo "$FIFO"; exec 3<>"$FIFO"
-	inactif=0; inactif_tx=0; dort=0; txoff=0; eth100=0; dodo=0
+	inactif=0; inactif_tx=0; dort=0; txoff=0; eth100=0; dodo=0; orph=0
 	[ "$(cat /sys/class/net/eth0/speed 2>/dev/null)" = 100 ] && eth100=1
 	trap 'cpu_rapide; [ $eth100 = 1 ] && eth_1000; exit 0' TERM INT
 	MODE=$(cat "$P/ensm_mode"); [ "$MODE" = sleep ] && { MODE=fdd; dort=1; retenir; cpu_lent; }
 	[ "$(cat "$P/out_altvoltage1_TX_LO_powerdown")" = 1 ] && txoff=1
-	set -- $(mesure); prx=$1; ptx=$2; psyn=$3
+	set -- $(mesure); prx=$1; ptx=$2; psyn=$3; prd=$4
 	ip_recus; pipin=$ipin
 	while :; do
 		if [ $dort = 1 ]; then
@@ -176,7 +177,14 @@ veille() {
 		else
 			inactif_tx=$((inactif_tx + 1))
 		fi
-		prx=$1; ptx=$2; psyn=$3
+		# Flux orphelin : DMA RX actif sans aucun client connecté (logiciel tué sans ordre
+		# d'arrêt) → sdr_ip_gadget continuerait d'émettre indéfiniment ; on le relance.
+		if [ $dort = 0 ] && [ "$4" != "$prd" ] && [ $nc -eq 0 ]; then orph=$((orph + 1)); else orph=0; fi
+		if [ $orph -ge "$ORPH_DELAI" ]; then
+			log "flux RX sans client depuis ${ORPH_DELAI} s : relance de sdr_ip_gadget"
+			/etc/init.d/S55sdr_ip_gadget restart >/dev/null 2>&1; orph=0
+		fi
+		prx=$1; ptx=$2; psyn=$3; prd=$4
 		if [ $dort = 0 ] && [ $inactif -ge "$DELAI" ]; then
 			retenir; connexions
 			if [ $nc -eq 0 ]; then

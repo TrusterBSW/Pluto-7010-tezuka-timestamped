@@ -99,4 +99,5 @@ passage à 100 Mbit/s après `ETH_DELAI`=300 s de sommeil).
   666/533, **en permanence** (pas de remontée à l'usage) → écarté : risque de manquer de CPU
   pour le débit du cellulaire.
 - Ventilateur 5 V sur le dissipateur : le plus efficace, toujours valable.
-- Ne pas utiliser les profils d'overclock CPU950/CPU1100 : la puce est déjà chaude.
+- Overclock CPU950/DDR600 : mesuré le 2026-11-08 (voir `srsran/README.md`) : +38 % de débit RX
+  maximal, +4 à 5 °C sous charge, hors spécifications ; non activé par défaut.

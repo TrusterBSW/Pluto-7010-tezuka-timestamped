@@ -32,7 +32,11 @@ RUN git clone --depth 1 -b soapy-sdr-0.8.1 https://github.com/pothosware/SoapySD
  && cmake --build SoapySDR/build -j"$(nproc)" && cmake --install SoapySDR/build
 
 # Pilote Soapy avec horodatage (UDP direct vers sdr_ip_gadget, ou USB direct)
+# Correctif : avec hostname=, se connecter directement (le scan « ip » passe par Avahi/DNS-SD, absent
+# du conteneur ; il échoue et srsRAN, qui énumère avant d'ouvrir, ne trouvait pas la carte)
+COPY soapy-hostname-first.patch /tmp/soapy-hostname-first.patch
 RUN git clone --depth 1 -b sdr_gadget_timestamping https://github.com/pgreenland/SoapyPlutoSDR.git \
+ && patch -d SoapyPlutoSDR -p1 < /tmp/soapy-hostname-first.patch \
  && cmake -S SoapyPlutoSDR -B SoapyPlutoSDR/build -DCMAKE_BUILD_TYPE=Release \
  && cmake --build SoapyPlutoSDR/build -j"$(nproc)" && cmake --install SoapyPlutoSDR/build \
  && ldconfig
