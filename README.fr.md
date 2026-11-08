@@ -33,6 +33,9 @@ Firmware Tezuka pour la carte **HamGeek Fishball** (clone Pluto+ : Zynq XC7Z010,
 - `system_top_tezuka.bin` : bitstream Tezuka d'origine (sans horodatage).
 - Démon `sdr_ip_gadget` (chemin UDP rapide et horodaté).
 - Mode éco (`/usr/sbin/eco`, `eco.conf` à la racine de la carte).
+- `devicetree.dtb` : devicetree Tezuka avec l'**atténuation TX au maximum (89,75 dB) au démarrage**
+  (`adi,tx-attenuation-mdB = <89750>` au lieu de 10 dB) : rien n'est émis tant qu'un logiciel ne règle
+  pas le gain TX. L'original est gardé sous `devicetree_orig.dtb`.
 
 Pour revenir au bitstream d'origine, **remplacer** `system_top.bin` par `system_top_tezuka.bin` (en
 gardant une copie). Changer `bitstream_image` dans `uEnv.txt` ne suffit pas.

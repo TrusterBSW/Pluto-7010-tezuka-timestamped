@@ -35,6 +35,9 @@ Docs are in French; commands and config snippets are universal.
 - `system_top_tezuka.bin`: original Tezuka bitstream (no timestamps).
 - `sdr_ip_gadget` daemon (fast UDP sample path, timestamped).
 - Eco mode (`/usr/sbin/eco`, `eco.conf` at the root of the card).
+- `devicetree.dtb`: Tezuka devicetree with **TX attenuation at maximum (89.75 dB) at boot**
+  (`adi,tx-attenuation-mdB = <89750>` instead of 10 dB), so nothing is emitted until a program sets the
+  TX gain. The original is kept as `devicetree_orig.dtb`.
 
 To go back to the stock bitstream, **replace** `system_top.bin` with `system_top_tezuka.bin` (keep a
 copy). Changing `bitstream_image` in `uEnv.txt` is not enough.
