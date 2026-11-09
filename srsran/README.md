@@ -110,6 +110,12 @@ calage des deux horloges, qui dérive lentement, `top` affiche de 18 à 90 % pou
 50 PRB en 8 bits charge autant que 25 PRB en 16 bits (même trafic réseau). Marge restante à 50 PRB :
 ~28 % sur le cœur 1.
 
+**Endurance (2026-11-09, 1 h, 50 PRB, 8 bits, gadget v0.2.0)** : aucune erreur srsRAN, aucun datagramme UDP
+perdu, `sdr_ip_gadget` jamais relancé, flux RX/TX constant ; **261 blocs TX en retard sur ~3,6 millions
+(0,007 %)**, un peu plus en seconde demi-heure (22 à 80 par tranche de 10 min) ; charge réelle stable
+(cœur 0 60-65 %, cœur 1 69-72 %) ; Zynq stable à 74-76 °C, AD9363 à 42-43 °C (carte déjà chaude au départ,
+sans ventilateur) ; srsRAN sur la VM : ~35 % d'un cœur.
+
 Débit RX horodaté maximal : 8,3 Méch/s (origine) → 12,2 (GSO, 16 bits) → **17,4 (GSO, 8 bits)**.
 L'overclock CPU950/DDR600 de Tezuka (11,4 Méch/s avec le gadget d'origine, +4 à 5 °C, hors
 spécifications) n'est plus utile et reste désactivé.
