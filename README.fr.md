@@ -103,7 +103,7 @@ recompilé avec cpufreq) et power-down automatique de la DDR3. Recette et chiffr
 
 - `Timestamps: YES` en RX et en TX, lien gigabit, 2 cœurs CPU.
 - Bouclage horodaté (`gsm test-ts`, 10 000 blocs de 1 ms) : **9 999/9 999 blocs RX à 1 ms exactement**, en 1R1T + mode éco.
-- **srsRAN 4G jusqu'à 50 PRB (10 MHz) sans overclock** : I/Q 8 bits rangés par le FPGA (`IP_CS8=1`) et `sdr_ip_gadget` avec GSO UDP. CPU de la carte : 25 PRB 35 % (16 bits) / 9 % (8 bits), 50 PRB 43 à 80 % (8 bits), contre 94 % à 25 PRB avec le gadget d'origine. Détails dans [srsran/README.md](srsran/README.md).
+- **srsRAN 4G jusqu'à 50 PRB (10 MHz) sans overclock** : I/Q 8 bits rangés par le FPGA (`IP_CS8=1`) et `sdr_ip_gadget` avec GSO UDP. Cœur le plus chargé : 72 % à 50 PRB (8 bits) comme à 25 PRB (16 bits), contre 90–91 % et ~150 blocs TX en retard par minute avec le gadget d'origine (charge réelle, mesurée par un compteur d'inactivité : `top` est trompeur ici). Détails dans [srsran/README.md](srsran/README.md).
 - Débit RX horodaté maximal : 8,3 Méch/s (origine) → 12,2 (GSO, 16 bits) → **17,4 Méch/s** (GSO, 8 bits). Voir [firmware/sdr_ip_gadget/README.md](firmware/sdr_ip_gadget/README.md).
 - Réception FM identique à celle du bitstream Tezuka d'origine.
 

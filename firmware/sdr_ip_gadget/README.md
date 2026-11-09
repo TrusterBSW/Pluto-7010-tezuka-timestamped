@@ -25,13 +25,19 @@ Débit RX horodaté maximal (`SoapySDRUtil --rate`) :
 | **GSO, 16 bits** | **12,2** |
 | **GSO, 8 bits convertis par le FPGA** (`ip_cs8=1`) | **17,4** |
 
-srsRAN 4G, CPU moyen de la carte sur 30 s (et blocs TX arrivés en retard, rejetés par le FPGA) :
+srsRAN 4G (moyenne sur 60 s, blocs TX arrivés en retard et rejetés par le FPGA) :
 
-| | gadget d'origine | GSO |
+| | gadget d'origine | gadget v0.2.0 (GSO) |
 |---|---|---|
-| 25 PRB, 16 bits | 94 % (91 / 30 s) | **35 %** (2 / 30 s) |
-| 25 PRB, 8 bits | 84 % | **9 %** |
-| 50 PRB, 8 bits | 97 %, saturé (30 / 30 s) | **43 à 80 %** (0 à 6 / 30 s) |
+| 25 PRB, 16 bits | cœur 0 74 %, **cœur 1 90 %** (147 blocs en retard / min) | cœur 0 65 %, **cœur 1 72 %** (0 / min) |
+| 25 PRB, 8 bits | 48 %, 59 % (4 / min) | **41 %, 51 %** (1 / min) |
+| 50 PRB, 8 bits | 75 %, **91 %**, saturé (152 / min) | **66 %, 72 %** (1 / min) |
+
+Charge **réelle** mesurée par un compteur d'inactivité (un thread de priorité minimale par cœur, dont le
+nombre d'itérations par seconde est comparé à celui de la carte au repos). Les pourcentages de `top` ou de
+`/proc/stat` sont **faux** ici : le noyau compte le temps CPU par échantillonnage à chaque tic de 1 ms
+(`CONFIG_TICK_CPU_ACCOUNTING`, `HZ=1000`) et le flux travaille lui aussi par tranches de 1 ms ; selon le
+calage des deux horloges, qui dérive lentement, `top` affiche de 18 à 90 % pour la même charge.
 
 Le mode 8 bits n'est pas dans le gadget : c'est le FPGA (logique CS8 de Tezuka, active quand le canal
 Q est désactivé) qui range I et Q sur 8 bits ; le pilote SoapyPlutoSDR patché (`ip_cs8=1`, voir

@@ -93,14 +93,22 @@ PLUTO_IP=<ip-carte> PRB=50 IP_CS8=1 docker compose run --rm srsran all
   [`../firmware/sdr_ip_gadget/README.md`](../firmware/sdr_ip_gadget/README.md)) et le pilote patché
   de cette image Docker (`soapy-ip-cs8.patch`).
 
-Mesures (carte sans overclock, srsRAN sur une VM en filaire, CPU moyen de la carte sur 30 s,
-blocs TX arrivés en retard et rejetés par le FPGA) :
+Mesures (carte sans overclock, srsRAN sur une VM en filaire, moyenne sur 60 s) :
 
 | | gadget d'origine | gadget v0.2.0 (GSO) |
 |---|---|---|
-| 25 PRB, 16 bits | 94 % (91 / 30 s) | **35 %** (2 / 30 s) |
-| 25 PRB, 8 bits | 84 % | **9 %** |
-| 50 PRB, 8 bits | 97 %, saturé | **43 à 80 %** (0 à 6 / 30 s ; 4 sur 160 000 en 160 s) |
+| 25 PRB, 16 bits | cœur 0 74 %, **cœur 1 90 %** (147 blocs en retard / min) | cœur 0 65 %, **cœur 1 72 %** (0 / min) |
+| 25 PRB, 8 bits | 48 %, 59 % (4 / min) | **41 %, 51 %** (1 / min) |
+| 50 PRB, 8 bits | 75 %, **91 %**, saturé (152 / min) | **66 %, 72 %** (1 / min) |
+
+Charge **réelle** mesurée par un compteur d'inactivité (un thread de priorité minimale par cœur, dont le
+nombre d'itérations par seconde est comparé à celui de la carte au repos). Les pourcentages de `top` ou de
+`/proc/stat` sont **faux** ici : le noyau compte le temps CPU par échantillonnage à chaque tic de 1 ms
+(`CONFIG_TICK_CPU_ACCOUNTING`, `HZ=1000`) et le flux travaille lui aussi par tranches de 1 ms ; selon le
+calage des deux horloges, qui dérive lentement, `top` affiche de 18 à 90 % pour la même charge.
+
+50 PRB en 8 bits charge autant que 25 PRB en 16 bits (même trafic réseau). Marge restante à 50 PRB :
+~28 % sur le cœur 1.
 
 Débit RX horodaté maximal : 8,3 Méch/s (origine) → 12,2 (GSO, 16 bits) → **17,4 (GSO, 8 bits)**.
 L'overclock CPU950/DDR600 de Tezuka (11,4 Méch/s avec le gadget d'origine, +4 à 5 °C, hors
