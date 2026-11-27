@@ -20,6 +20,7 @@ LVDS, 1 GB RAM, gigabit Ethernet, SD boot), with:
 | `firmware/tezuka-fishball-ts.zip` | SD card image (copy the zip contents to the root of a FAT32 card) |
 | `firmware/eco/` | eco mode scripts (included in the image), [README](firmware/eco/README.md) |
 | `firmware/kernel-cpufreq/` | experiment: Tezuka kernel rebuilt with cpufreq (not used, no gain), [README](firmware/kernel-cpufreq/README.md) |
+| `firmware/hdl/` | FPGA fix for 8-bit TX (`ip_cs8=1`, bitstream v4) and loopback test, [README](firmware/hdl/README.md) (French) |
 | `srsran/` | Docker image: srsRAN 4G + timestamped SoapyPlutoSDR (patched: hostname discovery, 8-bit `ip_cs8`), config generator |
 | `firmware/sdr_ip_gadget/` | patch and measurements of the optimised `sdr_ip_gadget` (UDP GSO) |
 | `gsm/` | Docker image: osmo-trx-soapy + Osmocom stack, **ready to configure, nothing configured** |
@@ -106,6 +107,7 @@ Also tried and dropped (no measurable gain): CPU frequency scaling 666↔333 MHz
 - Timestamped loopback (`gsm test-ts`, 10,000 blocks of 1 ms): **9,999/9,999 RX blocks at exactly 1 ms**, 1R1T + eco mode.
 - **srsRAN 4G up to 50 PRB (10 MHz) without overclock**: 8-bit I/Q packed by the FPGA (`IP_CS8=1`) and `sdr_ip_gadget` with UDP GSO. Busiest core: 72 % at 50 PRB (8-bit) and 25 PRB (16-bit), vs 90–91 % and ~150 late TX blocks per minute with the original gadget (real load, measured with an idle-loop meter: `top` is misleading here). Details in [srsran/README.md](srsran/README.md).
 - Max timestamped RX rate: 8.3 MS/s (original) → 12.2 (GSO, 16-bit) → **17.4 MS/s** (GSO, 8-bit). See [firmware/sdr_ip_gadget/README.md](firmware/sdr_ip_gadget/README.md).
+- **8-bit TX fixed (bitstream v4, 2026-11-27)**: with the v3 bitstream, 8-bit transmit (`ip_cs8=1`) sent Q = 0 (real signal with a mirror image). Checked by AD9363 digital loopback; RX and 16-bit modes were not affected. Details in [firmware/hdl/README.md](firmware/hdl/README.md).
 - FM reception identical to the stock Tezuka bitstream.
 
 ## Known limitations

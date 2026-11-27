@@ -1,0 +1,99 @@
+From c6ea3dad6faae84cb2d9e1941319a20dbca6f305 Mon Sep 17 00:00:00 2001
+From: TrusterBSW <noreply@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 09:27:11 +0000
+Subject: [PATCH] TX 8 bits : choisir le chemin CS8 quand Q est coupe, et
+ sortir Q du DMA
+
+logic_no_q0_tx/Op1 etait relie a din_enable_0 (I) : avec ip_cs8=1 (I seul
+actif) le chemin 8 bits n etait jamais choisi, le DAC recevait I = mot
+{I8,Q8} et Q = DDS (desactive, donc 0). Correctif : din_enable_1, comme en RX
+et sur TX2, plus patches/adi-hdl/axi_ad9361-tx-cs8-force-dma.patch (a
+appliquer dans adi-hdl) : Q0 suit la donnee DMA quand I0 seul est actif.
+
+Verifie par rebouclage numerique AD9363 : image -fs/8 a -120 dB (0 dB avant).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../adi-hdl/axi_ad9361-tx-cs8-force-dma.patch | 54 +++++++++++++++++++
+ maia-hdl/projects/pluto/system_bd.tcl         |  4 +-
+ 2 files changed, 57 insertions(+), 1 deletion(-)
+ create mode 100644 maia-hdl/patches/adi-hdl/axi_ad9361-tx-cs8-force-dma.patch
+
+diff --git a/maia-hdl/patches/adi-hdl/axi_ad9361-tx-cs8-force-dma.patch b/maia-hdl/patches/adi-hdl/axi_ad9361-tx-cs8-force-dma.patch
+new file mode 100644
+index 0000000..0c6f962
+--- /dev/null
++++ b/maia-hdl/patches/adi-hdl/axi_ad9361-tx-cs8-force-dma.patch
+@@ -0,0 +1,54 @@
++--- library/axi_ad9361/axi_ad9361_tx_channel.v	2026-11-05 13:32:38.712051766 +0000
+++++ library/axi_ad9361/axi_ad9361_tx_channel.v	2026-11-24 20:41:31.576265439 +0000
++@@ -65,6 +65,7 @@
++   // processor interface
++ 
++   output          dac_enable,
+++  input           dac_force_dma,
++   input           dac_data_sync,
++   input           dac_dds_format,
++ 
++@@ -300,7 +301,8 @@
++       4'h3: dac_data_out_int <= 12'd0;
++       4'h2: dac_data_out_int <= dma_data[15:4];
++       4'h1: dac_data_out_int <= dac_pat_data[15:4];
++-      default: dac_data_out_int <= dac_dds_data_s;
+++      // TX 8 bits : I seul en DMA, Q deduit du meme mot -> Q suit la donnee DMA au lieu du DDS
+++      default: dac_data_out_int <= dac_force_dma ? dma_data[15:4] : dac_dds_data_s;
++     endcase
++   end
++ 
++--- library/axi_ad9361/axi_ad9361_tx.v	2026-11-05 13:32:38.712051766 +0000
+++++ library/axi_ad9361/axi_ad9361_tx.v	2026-11-24 20:41:31.580265517 +0000
++@@ -242,6 +242,7 @@
++     .dac_data_out (dac_data_int_s[11:0]),
++     .dac_data_in (dac_data_int_s[23:12]),
++     .dac_enable (dac_enable_i0),
+++    .dac_force_dma (1'b0),
++     .dac_data_sync (dac_data_sync),
++     .dac_dds_format (dac_dds_format_s),
++     .up_rstn (up_rstn),
++@@ -278,6 +279,7 @@
++     .dac_data_out (dac_data_int_s[23:12]),
++     .dac_data_in (dac_data_int_s[11:0]),
++     .dac_enable (dac_enable_q0),
+++    .dac_force_dma (dac_enable_i0 & ~dac_enable_q0),
++     .dac_data_sync (dac_data_sync),
++     .dac_dds_format (dac_dds_format_s),
++     .up_rstn (up_rstn),
++@@ -314,6 +316,7 @@
++     .dac_data_out (dac_data_int_s[35:24]),
++     .dac_data_in (dac_data_int_s[47:36]),
++     .dac_enable (dac_enable_i1),
+++    .dac_force_dma (1'b0),
++     .dac_data_sync (dac_data_sync),
++     .dac_dds_format (dac_dds_format_s),
++     .up_rstn (up_rstn),
++@@ -350,6 +353,7 @@
++     .dac_data_out (dac_data_int_s[47:36]),
++     .dac_data_in (dac_data_int_s[35:24]),
++     .dac_enable (dac_enable_q1),
+++    .dac_force_dma (1'b0),
++     .dac_data_sync (dac_data_sync),
++     .dac_dds_format (dac_dds_format_s),
++     .up_rstn (up_rstn),
+diff --git a/maia-hdl/projects/pluto/system_bd.tcl b/maia-hdl/projects/pluto/system_bd.tcl
+index f4fad4b..cbbf092 100644
+--- a/maia-hdl/projects/pluto/system_bd.tcl
++++ b/maia-hdl/projects/pluto/system_bd.tcl
+@@ -1124,7 +1124,9 @@ if {[info exists maia_iio]} {
+ 	ad_ip_instance util_vector_logic logic_no_q0_tx [list \
+ 	  C_OPERATION {not} \
+ 	  C_SIZE 1]
+-	ad_connect axi_ad9361_dac_fifo/din_enable_0 logic_no_q0_tx/Op1
++	# CS8 quand Q est coupe (I seul actif), comme en RX (dout_enable_1) et sur TX2 (din_enable_3).
++	# Avant : din_enable_0 (I), le chemin 8 bits n etait jamais choisi avec ip_cs8=1.
++	ad_connect axi_ad9361_dac_fifo/din_enable_1 logic_no_q0_tx/Op1
+ 
+ 	#Select input depending on dac_qo_enable
+ 	# *****  I PART **********
+-- 
+2.34.1
+
