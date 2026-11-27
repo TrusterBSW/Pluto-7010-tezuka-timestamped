@@ -20,7 +20,7 @@ Firmware Tezuka pour la carte **HamGeek Fishball** (clone Pluto+ : Zynq XC7Z010,
 | `firmware/tezuka-fishball-ts.zip` | image de carte SD (copier le contenu du zip à la racine d'une carte FAT32) |
 | `firmware/eco/` | scripts du mode éco (inclus dans l'image), [README](firmware/eco/README.md) |
 | `firmware/kernel-cpufreq/` | essai : noyau Tezuka recompilé avec cpufreq (non retenu, pas de gain), [README](firmware/kernel-cpufreq/README.md) |
-| `firmware/hdl/` | correctif FPGA de l'émission 8 bits (`ip_cs8=1`, bitstream v4) et test de rebouclage, [README](firmware/hdl/README.md) |
+| `firmware/hdl/` | correctifs FPGA : émission 8 bits (`ip_cs8=1`) et 2e voie TX (bitstream v5), tests de rebouclage, [README](firmware/hdl/README.md) |
 | `srsran/` | image Docker : srsRAN 4G + SoapyPlutoSDR horodaté (patché : découverte par hostname, 8 bits `ip_cs8`), génération de la config |
 | `firmware/sdr_ip_gadget/` | patch et mesures du `sdr_ip_gadget` optimisé (GSO UDP) |
 | `gsm/` | image Docker : osmo-trx-soapy + pile Osmocom, **prête à configurer, rien n'est configuré** |
@@ -106,7 +106,7 @@ recompilé avec cpufreq) et power-down automatique de la DDR3. Recette et chiffr
 - Bouclage horodaté (`gsm test-ts`, 10 000 blocs de 1 ms) : **9 999/9 999 blocs RX à 1 ms exactement**, en 1R1T + mode éco.
 - **srsRAN 4G jusqu'à 50 PRB (10 MHz) sans overclock** : I/Q 8 bits rangés par le FPGA (`IP_CS8=1`) et `sdr_ip_gadget` avec GSO UDP. Cœur le plus chargé : 72 % à 50 PRB (8 bits) comme à 25 PRB (16 bits), contre 90–91 % et ~150 blocs TX en retard par minute avec le gadget d'origine (charge réelle, mesurée par un compteur d'inactivité : `top` est trompeur ici). Détails dans [srsran/README.md](srsran/README.md).
 - Débit RX horodaté maximal : 8,3 Méch/s (origine) → 12,2 (GSO, 16 bits) → **17,4 Méch/s** (GSO, 8 bits). Voir [firmware/sdr_ip_gadget/README.md](firmware/sdr_ip_gadget/README.md).
-- **Émission 8 bits corrigée (bitstream v4, 2026-11-27)** : avec le bitstream v3, l'émission 8 bits (`ip_cs8=1`) envoyait Q = 0 (signal réel avec image miroir). Vérifié par rebouclage numérique AD9363 ; réception et modes 16 bits non touchés. Détails dans [firmware/hdl/README.md](firmware/hdl/README.md).
+- **Bitstream v5 (2026-11-27)** : avec le bitstream v3, l'émission 8 bits (`ip_cs8=1`) envoyait Q = 0 (signal réel avec image miroir), et la 2e voie TX (2R2T) n'émettait rien du tout (déjà le cas dans le bitstream Tezuka d'origine). Les deux sont corrigés, vérifiés par rebouclage numérique AD9363 et des essais srsRAN 50 PRB ; réception et TX1 16 bits non touchés. Détails dans [firmware/hdl/README.md](firmware/hdl/README.md).
 - Réception FM identique à celle du bitstream Tezuka d'origine.
 
 ## Limites connues

@@ -93,7 +93,7 @@ PLUTO_IP=<ip-carte> PRB=50 IP_CS8=1 docker compose run --rm srsran all
   [`../firmware/sdr_ip_gadget/README.md`](../firmware/sdr_ip_gadget/README.md)) et le pilote patché
   de cette image Docker (`soapy-ip-cs8.patch`).
 - ⚠️ **Émission 8 bits fausse avec le bitstream v3** (zips antérieurs au 2026-11-27) : Q émis à zéro,
-  signal réel avec image miroir. Corrigé dans le bitstream v4, voir
+  signal réel avec image miroir. Corrigé depuis le bitstream v4 (v5 actuel), voir
   [`../firmware/hdl/README.md`](../firmware/hdl/README.md). Les mesures de débit et de charge ci-dessous
   (faites en v3, `TX_GAIN=0`) restent valables ; le signal émis n'avait pas été contrôlé.
 

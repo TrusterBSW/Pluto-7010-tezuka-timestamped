@@ -1,7 +1,7 @@
 From c6ea3dad6faae84cb2d9e1941319a20dbca6f305 Mon Sep 17 00:00:00 2001
 From: TrusterBSW <noreply@users.noreply.github.com>
 Date: Fri, 27 Nov 2026 09:27:11 +0000
-Subject: [PATCH] TX 8 bits : choisir le chemin CS8 quand Q est coupe, et
+Subject: [PATCH 1/2] TX 8 bits : choisir le chemin CS8 quand Q est coupe, et
  sortir Q du DMA
 
 logic_no_q0_tx/Op1 etait relie a din_enable_0 (I) : avec ip_cs8=1 (I seul
